@@ -1,0 +1,37 @@
+---
+name: action-debian-build
+description: Build a Debian package from an upstream git tag and your own debian/ directory
+author: Martin Simon <martin@simon.tf>
+branding:
+  icon: package
+  color: red
+inputs:
+  SUITE:
+    description: Debian suite to build for. Selects the builder image tag.
+    required: false
+    default: trixie
+  IMAGE:
+    description: Builder image, without the suite tag.
+    required: false
+    default: ghcr.io/pkghaus/deb-builder
+  WORKING_DIRECTORY:
+    description: Directory containing debian/ and package.conf, relative to the workspace.
+    required: false
+    default: .
+runs:
+  # A composite action rather than the docker action used by action-forge-publish:
+  # runs.image takes only static values, so a docker action could neither select
+  # the image per suite nor receive SUITE as a build argument.
+  using: composite
+  steps:
+    - name: Build Debian package
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.IMAGE }}
+        SUITE: ${{ inputs.SUITE }}
+        WORKING_DIRECTORY: ${{ inputs.WORKING_DIRECTORY }}
+      run: |
+        docker run --rm \
+          --volume "${GITHUB_WORKSPACE}/${WORKING_DIRECTORY}:/target" \
+          --workdir /target \
+          "${IMAGE}:${SUITE}"

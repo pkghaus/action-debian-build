@@ -1,0 +1,16 @@
+Source: deb-build-fixture
+Section: misc
+Priority: optional
+Maintainer: action-debian-build <fixture@example.net>
+Build-Depends:
+ debhelper-compat (= 13),
+Standards-Version: 4.6.2
+Homepage: https://github.com/pkghaus/action-debian-build
+
+Package: deb-build-fixture
+Architecture: any
+Depends:
+ ${misc:Depends},
+Description: Fixture package for the action-debian-build test suite
+ Builds a single shell script so the build pipeline can be exercised end to end
+ without cloning a real upstream project.

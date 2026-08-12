@@ -1,0 +1,31 @@
+#!/bin/sh
+#
+# Test shim. Mounted ahead of the real git in PATH so the retry loop can be
+# driven deterministically instead of by timing.
+#
+#   GIT_FAIL_TIMES  how many `git clone` invocations to fail before delegating
+#   GIT_FAIL_STATE  counter file (defaults to /tmp/fake-git.count)
+
+set -eu
+
+state="${GIT_FAIL_STATE:-/tmp/fake-git.count}"
+limit="${GIT_FAIL_TIMES:-0}"
+
+if [ "${1:-}" = clone ]; then
+    seen="$(cat "$state" 2>/dev/null || echo 0)"
+
+    if [ "$seen" -lt "$limit" ]; then
+        echo "$((seen + 1))" > "$state"
+
+        # Leave a partial checkout behind, the way a cancelled fetch does: a
+        # retry that does not clear it would fail on "directory exists".
+        target="$(eval echo "\${$#}")"
+        mkdir -p "$target"
+        : > "$target/.partial-clone"
+
+        echo "fake-git: simulated clone failure $((seen + 1))/$limit" >&2
+        exit 128
+    fi
+fi
+
+exec /usr/bin/git "$@"

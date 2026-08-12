@@ -1,0 +1,154 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install linters
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends shellcheck python3-yaml
+
+      - name: shellcheck
+        run: shellcheck -x entrypoint.sh tests/lib.sh tests/run.sh tests/test-*.sh tests/fake-git
+
+      - name: actionlint
+        # Pinned by digest for the same reason the actions are pinned by SHA.
+        run: |
+          docker run --rm \
+            --volume "$PWD:/repo" \
+            --workdir /repo \
+            rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 \
+            -color
+
+      - name: Reject duplicate YAML keys
+        run: python3 tests/yamlcheck.py .github/workflows/*.yml
+
+  test:
+    name: test / ${{ matrix.suite }} / ${{ matrix.target.arch }}
+    runs-on: ${{ matrix.target.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [trixie, testing, unstable]
+        target:
+          - {arch: amd64, runner: ubuntu-24.04}
+          - {arch: arm64, runner: ubuntu-24.04-arm}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build the builder image
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: |
+          docker build \
+            --build-arg "SUITE=$SUITE" \
+            --tag "builder:$SUITE" \
+            .
+
+      - name: Run the test suite
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: tests/run.sh "builder:$SUITE"
+
+  action:
+    name: action / ${{ matrix.suite }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [trixie, testing, unstable]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build the builder image under the tag the action will ask for
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: |
+          docker build \
+            --build-arg "SUITE=$SUITE" \
+            --tag "local/deb-builder:$SUITE" \
+            .
+
+      - name: Prepare the fixture's upstream repository
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: |
+          docker run --rm \
+            --volume "$PWD/tests/fixture:/target" \
+            --workdir /target/upstream \
+            --entrypoint sh \
+            "local/deb-builder:$SUITE" -c '
+              set -eu
+              git config --global --add safe.directory /target/upstream
+              git init -q -b main .
+              git add -A
+              git -c user.name=fixture -c user.email=fixture@example.net \
+                  commit -qm "fixture upstream"
+              git tag v0.0.1
+            '
+
+      # The action's own container clones the fixture over file://, and that
+      # source tree belongs to the runner user while the clone runs as root.
+      # Handing the tree to root beforehand keeps the action itself free of
+      # test-only knobs; runner VMs are ephemeral, so root-owned workspace
+      # files cost nothing afterwards.
+      - name: Hand the fixture to root
+        run: sudo chown -R 0:0 tests/fixture/upstream
+
+      # The action under test, exercised exactly as a consumer would use it.
+      - name: Build via the action
+        uses: ./
+        with:
+          SUITE: ${{ matrix.suite }}
+          IMAGE: local/deb-builder
+          WORKING_DIRECTORY: tests/fixture
+
+      - name: Assert the action produced a package
+        env:
+          SUITE: ${{ matrix.suite }}
+        # Mirrors the entrypoint's version qualifier, as tests/test-build.sh
+        # does: the suite lives in the version, not the filename.
+        run: |
+          case "$SUITE" in
+              unstable) qualifier="" ;;
+              testing)  qualifier="~testing1" ;;
+              *)        qualifier="~haus$(docker run --rm --entrypoint sh \
+                            "local/deb-builder:$SUITE" \
+                            -c '. /etc/os-release && printf %s "$VERSION_ID"')+1" ;;
+          esac
+          arch="$(dpkg --print-architecture)"
+          expected="deb-build-fixture_0.0.1-1${qualifier}_${arch}.deb"
+
+          [ -f "tests/fixture/debs/$expected" ] || {
+              echo "expected $expected, found:" >&2
+              find tests/fixture/target -type f >&2
+              exit 1
+          }
+          echo "ok: $expected"

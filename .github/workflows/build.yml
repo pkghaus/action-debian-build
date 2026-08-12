@@ -1,0 +1,131 @@
+name: Build Debian packages
+
+# Reusable validation pipeline for Debian packaging repositories. A caller
+# triggers on tags or pull requests and delegates here; see README.md.
+#
+# Every matrix leg builds one suite on one architecture and uploads its .deb as
+# a short-lived artifact for inspection. Nothing is published from here: the
+# pkg.haus APT archive builds its packages from source itself, so this workflow
+# exists to prove a packaging repository's tags build cleanly everywhere before
+# the archive picks them up.
+#
+# The build step mirrors action.yml rather than calling it: inside a reusable
+# workflow, `uses: ./` resolves against the *caller's* checkout, and referencing
+# this repository by tag from inside itself would need the tag to exist before
+# the commit that names it. Six duplicated lines in one repository is the cheaper
+# of the two problems.
+#
+# Actions are pinned to commit SHAs: a full-length SHA is the only immutable
+# reference GitHub offers, and a tag can be moved by anyone who compromises the
+# action's repository. Dependabot keeps the pins current.
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        description: Builder image, without the suite tag.
+        type: string
+        default: ghcr.io/pkghaus/deb-builder
+      suites:
+        description: JSON array of Debian suites to build for.
+        type: string
+        default: '["trixie","testing","unstable"]'
+      targets:
+        description: >
+          JSON array of {arch, runner} objects. Each entry builds on the given
+          runner; the package architecture itself comes from debian/control.
+          Passed as objects rather than relying on matrix include, because an
+          include entry matching no combination adds a job instead of decorating
+          one.
+        type: string
+        default: >
+          [{"arch":"amd64","runner":"ubuntu-24.04"},
+           {"arch":"arm64","runner":"ubuntu-24.04-arm"}]
+    secrets:
+      APT_DISPATCH_TOKEN:
+        description: >
+          Fine-grained token allowed to fire repository_dispatch on
+          pkghaus/apt. Optional: without it the notify job is a no-op, so
+          third-party callers are unaffected.
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.suite }} / ${{ matrix.target.arch }}
+    runs-on: ${{ matrix.target.runner }}
+    timeout-minutes: 60
+    strategy:
+      # One suite failing should not hide the state of the others.
+      fail-fast: false
+      matrix:
+        suite: ${{ fromJSON(inputs.suites) }}
+        target: ${{ fromJSON(inputs.targets) }}
+    steps:
+      - name: Checkout packaging repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # This checkout is mounted into a container that then runs upstream
+          # build code -- debian/rules, upstream makefiles, cargo build scripts.
+          # A persisted token would sit in .git/config where any of it could
+          # read it. Nothing here needs git credentials: the upstream clone is
+          # unauthenticated.
+          persist-credentials: false
+
+      - name: Build package
+        # Values reach the shell through the environment rather than being
+        # interpolated into the script, which is how GitHub recommends handling
+        # any expression in a run block.
+        env:
+          BUILDER_IMAGE: ${{ inputs.image }}
+          SUITE: ${{ matrix.suite }}
+        run: |
+          docker run --rm \
+            --volume "$PWD:/target" \
+            --workdir /target \
+            "${BUILDER_IMAGE}:${SUITE}"
+
+      - name: Upload package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: deb-${{ matrix.suite }}-${{ matrix.target.arch }}
+          # .deb plus its .buildinfo, for inspection only -- the archive builds
+          # its own copies from source.
+          path: debs/*
+          if-no-files-found: error
+          retention-days: 7
+
+  notify-archive:
+    # A validated tag is the archive's cue to ingest immediately, instead of
+    # the archive polling. Skips silently when the caller provides no
+    # APT_DISPATCH_TOKEN (third-party use); fails loudly when the token exists
+    # but the dispatch is rejected, so an expired token surfaces as a red run
+    # on the very tag it affected.
+    name: notify archive
+    needs: build
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch the ingest
+        env:
+          TOKEN: ${{ secrets.APT_DISPATCH_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if [ -z "${TOKEN}" ]; then
+            echo "APT_DISPATCH_TOKEN not provided; not notifying the archive."
+            exit 0
+          fi
+          curl --fail-with-body -sS -X POST \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/pkghaus/apt/dispatches \
+            -d "{\"event_type\":\"package-tagged\",\"client_payload\":{\"repository\":\"${REPOSITORY}\",\"tag\":\"${TAG}\"}}"
+

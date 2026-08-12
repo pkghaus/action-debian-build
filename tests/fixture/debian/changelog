@@ -1,0 +1,5 @@
+deb-build-fixture (0.0.1-1) unstable; urgency=medium
+
+  * Fixture package used by the test suite.
+
+ -- action-debian-build <fixture@example.net>  Mon, 11 Aug 2026 00:00:00 +0000

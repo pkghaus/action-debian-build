@@ -1,0 +1,3 @@
+# The image needs entrypoint.sh and nothing else from this repository.
+*
+!entrypoint.sh

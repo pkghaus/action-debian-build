@@ -1,0 +1,157 @@
+name: Builder images
+
+# Publishes ghcr.io/<owner>/deb-builder:<suite> as a multi-arch manifest carrying
+# SLSA provenance and an SBOM.
+#
+# The package is deliberately not named after this repository: the image is a
+# build environment, not an action. The image.source label below is what links it
+# back here on GitHub.
+#
+# Each architecture is built on a native runner rather than under QEMU, so an
+# arm64 image costs the same as an amd64 one. Per-arch tags are pushed first and
+# joined with imagetools afterwards, which preserves the attestations that
+# docker manifest would drop.
+#
+# The weekly run exists because testing and unstable move underneath the image:
+# nothing breaks if it goes stale, since the entrypoint refreshes apt indexes
+# before resolving build dependencies, but the preinstalled tooling drifts
+# further from the suite the longer it sits.
+#
+# NOTE: once this repository is public, GitHub disables scheduled workflows after
+# 60 days without repository activity. A quiet month or two will silently stop
+# the weekly rebuild -- re-enable it from the Actions tab, or trigger this
+# workflow manually, before trusting the images to be fresh.
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - Dockerfile
+      - entrypoint.sh
+      - .github/workflows/images.yml
+  schedule:
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: images-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.suite }} / ${{ matrix.target.arch }}
+    runs-on: ${{ matrix.target.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        # Kept in step with the release workflow's default suites.
+        suite: [trixie, testing, unstable]
+        target:
+          - {arch: amd64, runner: ubuntu-24.04}
+          - {arch: arm64, runner: ubuntu-24.04-arm}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Log in to GHCR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      - name: Set up buildx
+        # The default docker driver cannot emit provenance or SBOM attestations;
+        # the docker-container driver can.
+        run: docker buildx create --name builder --driver docker-container --use
+
+      - name: Build and push
+        env:
+          SUITE: ${{ matrix.suite }}
+          ARCH: ${{ matrix.target.arch }}
+        run: |
+          # GHCR requires a lowercase path, which a fork's owner name may not be.
+          image="ghcr.io/$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')/deb-builder"
+
+          docker buildx build \
+            --build-arg "SUITE=$SUITE" \
+            --label "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --label "org.opencontainers.image.version=$SUITE" \
+            --provenance=mode=max \
+            --sbom=true \
+            --tag "${image}:${SUITE}-${ARCH}" \
+            --push \
+            .
+
+      - name: Smoke test the pushed image
+        env:
+          SUITE: ${{ matrix.suite }}
+          ARCH: ${{ matrix.target.arch }}
+        run: |
+          image="ghcr.io/$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')/deb-builder"
+
+          docker run --rm --entrypoint sh "${image}:${SUITE}-${ARCH}" -c '
+              set -eu
+              for cmd in dpkg-source dpkg-parsechangelog dpkg-buildpackage git curl; do
+                  command -v "$cmd" >/dev/null || { echo "missing: $cmd" >&2; exit 1; }
+              done
+              [ -n "${DEB_SUITE:-}" ] || { echo "DEB_SUITE not baked in" >&2; exit 1; }
+              echo "ok: $DEB_SUITE $(dpkg --print-architecture)"
+          '
+
+  manifest:
+    name: manifest / ${{ matrix.suite }}
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+      # Required to sign the provenance attestation.
+      id-token: write
+      attestations: write
+    strategy:
+      matrix:
+        suite: [trixie, testing, unstable]
+    steps:
+      - name: Log in to GHCR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      - name: Join per-arch images into one manifest
+        id: manifest
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: |
+          image="ghcr.io/$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')/deb-builder"
+
+          docker buildx imagetools create \
+            --tag "${image}:${SUITE}" \
+            "${image}:${SUITE}-amd64" \
+            "${image}:${SUITE}-arm64"
+
+          digest="$(docker buildx imagetools inspect "${image}:${SUITE}" \
+              --format '{{.Manifest.Digest}}')"
+
+          {
+              echo "image=${image}"
+              echo "digest=${digest}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.manifest.outputs.image }}
+          subject-digest: ${{ steps.manifest.outputs.digest }}
+          push-to-registry: true
