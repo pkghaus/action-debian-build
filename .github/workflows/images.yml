@@ -119,6 +119,9 @@ jobs:
       # Required to sign the provenance attestation.
       id-token: write
       attestations: write
+      # The attestation's storage record needs this newer scope; without it
+      # the upload warns and skips the record.
+      artifact-metadata: write
     strategy:
       matrix:
         suite: [trixie, testing, unstable]
