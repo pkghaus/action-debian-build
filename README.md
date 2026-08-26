@@ -21,6 +21,7 @@ with `lintian` and collecting artifacts all live here and are shared.
 | `SUITE` | `trixie` | Debian suite to build for; selects the builder image tag. |
 | `IMAGE` | `ghcr.io/pkghaus/deb-builder` | Builder image, without the suite tag. |
 | `WORKING_DIRECTORY` | `.` | Directory holding `debian/` and `package.conf`, relative to the workspace. |
+| `DEP8` | `on` | `off` skips the package's DEP-8 tests. Any other value is an error. |
 
 Packages land in `debs/` inside that directory.
 
@@ -83,7 +84,7 @@ LINTIAN=warn
 | `UPSTREAM` | yes | - | Git URL of the upstream project. Any URL `git clone` accepts. |
 | `VERSION` | yes | - | Tag or branch to build. Overridable from the environment for local one-off builds. |
 | `TOOLCHAIN` | no | `none` | `rust` bootstraps rustup's stable toolchain; `none` relies on `debian/control`. |
-| `DBGSYM` | no | `0` | Set to `1` to build and publish the automatic `-dbgsym` package. |
+| `DBGSYM` | no | `0` | `1` or `on` builds and publishes the automatic `-dbgsym` package, `0` or `off` does not. Any other value is an error. |
 | `LINTIAN` | no | `warn` | `off` skips checks, `warn` reports them, `error` fails the build on an error tag. |
 | `SETUP_HOOK` | no | - | Shell run after the toolchain and before the build, in the entrypoint's own shell, so `PATH` changes stick. |
 
@@ -112,6 +113,30 @@ repository, a pre-build fixup - without needing a change here.
 failing, because most packages carry pre-existing tags and a release should not
 start failing because lintian gained a check. Set `LINTIAN=error` once a package
 is clean, or `LINTIAN=off` to skip it.
+
+### DEP-8 tests
+
+A package that ships `debian/tests/` has those tests run after it is built, with
+[autopkgtest](https://salsa.debian.org/ci-team/autopkgtest). A package without
+`debian/tests/control` skips this silently, so adding one is what turns it on.
+Set `DEP8: "off"` (or `dep8: "off"` on the reusable workflow) to skip them even
+when the directory is there, which is what a repository carrying
+`debian/tests/` for Debian's own CI wants if it does not want them run here.
+
+The tests run against the package that was just built, installed into a fresh
+container, rather than against the build tree. That is the point: it catches the
+class of breakage a build and a lint cannot see, where the package compiles,
+lints clean and then fails the moment it does any work.
+
+Two details are worth knowing if you write one. The testbed is a container, so a
+test may bind ports and start services. And a test marked
+`Restrictions: isolation-container` is honoured: autopkgtest only grants that
+capability to a testbed running a real init, which is why the testbed is built
+from `debian:<suite>` plus `sysvinit-core`. A run where every test is skipped for
+want of a capability fails rather than passing quietly.
+
+The whole run is retried once before the build is failed, because a functional
+test can fail on timing in a way a compile cannot.
 
 ### Debug symbols
 
@@ -176,7 +201,7 @@ docker build --build-arg SUITE=noble --build-arg BASE_IMAGE=ubuntu:24.04 .
 
 ## Using this from another account
 
-Nothing here is specific to one owner. Two inputs cover the cases that differ:
+Nothing here is specific to one owner. A few inputs cover the cases that differ:
 
 ```yaml
 jobs:
@@ -193,6 +218,7 @@ jobs:
 | `image` | `ghcr.io/pkghaus/deb-builder` | Builder image, without the suite tag. |
 | `suites` | `["trixie","testing","unstable"]` | Suites to build, as a JSON array. |
 | `targets` | `amd64` on `ubuntu-24.04`, `arm64` on `ubuntu-24.04-arm` | Runner per architecture, as JSON objects. |
+| `dep8` | `on` | `off` skips each package's DEP-8 tests. Set this if the repository carries `debian/tests/` for Debian's own CI and you do not want them run here. |
 
 Use the published images as they are, or fork this repository, let its own
 `images.yml` publish to your namespace, and point `image` at those. Producing
@@ -204,9 +230,22 @@ emits.
 
 Pin the floating major: `@v1` always points at the newest `v1.x.y` release.
 Anything that changes the calling contract (inputs, `package.conf` keys,
-artifact names) is a breaking change and gets a new major. Exact tags
-(`v1.0.0`) never move - pin one, or a commit SHA, where bit-for-bit
-determinism matters more than fixes arriving.
+artifact names) is a breaking change and gets a new major.
+
+Exact tags (`v1.0.0`) never move, but pinning one does not freeze what runs.
+Two references inside float, both deliberately:
+
+- The reusable workflow calls the action as `@v1`. It cannot reference the
+  action at its own commit instead: `uses: ./` inside a reusable workflow
+  resolves against the *caller's* checkout rather than this repository, and
+  `uses:` accepts no expression.
+- The builder image is `ghcr.io/pkghaus/deb-builder:<suite>`, a tag that moves
+  as the images are rebuilt. The `image` input names a repository, not a
+  reference, so it cannot pin a digest either.
+
+An exact tag therefore freezes these files, not the code they run. Pin one to
+stop workflow and action changes arriving; nothing here pins the build
+environment.
 
 Releasing:
 
@@ -230,7 +269,7 @@ up. CI runs it on every suite and architecture.
 | --- | --- |
 | `test-build.sh` | default build, artifact naming, `DBGSYM` both ways, `.buildinfo` collection, all three `LINTIAN` modes, `SETUP_HOOK` including a failing one, `VERSION` override, wrong-architecture diagnosis |
 | `test-retry.sh` | transient clone failures, partial-checkout cleanup, retry exhaustion, `CLONE_ATTEMPTS` bounding |
-| `test-config.sh` | missing `package.conf`, missing `UPSTREAM`/`VERSION`, unknown `TOOLCHAIN`, unknown `LINTIAN` |
+| `test-config.sh` | missing `package.conf`, missing `UPSTREAM`/`VERSION`, unknown `TOOLCHAIN`, unknown `LINTIAN`, unknown `DBGSYM` and its word form |
 | `test-yamlcheck.sh` | the YAML gate accepts the workflows and rejects a duplicate key |
 
 Clone failures are driven by a `git` shim (`tests/fake-git`) rather than by
@@ -242,6 +281,18 @@ suite, so the action's own contract is covered rather than only the entrypoint's
 Alongside those, CI runs `shellcheck`, `actionlint`, and a YAML check that
 rejects duplicate mapping keys - which GitHub rejects at parse time but
 `yaml.safe_load` accepts silently.
+
+`shellcheck` runs from a digest-pinned image rather than the runner's copy, so
+the same version judges every line of shell here as in the sibling repositories.
+`tests/shellcheck-composite.py` puts `action.yml`'s own `run:` blocks through
+that same image: `actionlint` extracts and checks `run:` blocks, but only under
+`.github/workflows`, and the action's steps are the longer half of the shell in
+this repository.
+
+The DEP-8 step is the one part the hermetic suite does not reach. It runs on the
+runner rather than inside the builder image, because autopkgtest grants the
+`isolation-container` capability only to a testbed with a real init and refuses
+to let the null backend claim it at all.
 
 ## Security
 

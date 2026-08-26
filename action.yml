@@ -1,7 +1,7 @@
 ---
 name: action-debian-build
 description: Build a Debian package from an upstream git tag and your own debian/ directory
-author: Martin Simon <martin@simon.tf>
+author: pkg.haus
 branding:
   icon: package
   color: red
@@ -18,6 +18,12 @@ inputs:
     description: Directory containing debian/ and package.conf, relative to the workspace.
     required: false
     default: .
+  DEP8:
+    description: >
+      Run the package's DEP-8 tests after building it, when it ships
+      debian/tests/. "on" or "off".
+    required: false
+    default: "on"
 runs:
   # A composite action rather than the docker action used by action-forge-publish:
   # runs.image takes only static values, so a docker action could neither select
@@ -35,3 +41,95 @@ runs:
           --volume "${GITHUB_WORKSPACE}/${WORKING_DIRECTORY}:/target" \
           --workdir /target \
           "${IMAGE}:${SUITE}"
+
+    - name: Run DEP-8 tests
+      shell: bash
+      env:
+        DEP8: ${{ inputs.DEP8 }}
+        SUITE: ${{ inputs.SUITE }}
+        WORKING_DIRECTORY: ${{ inputs.WORKING_DIRECTORY }}
+      run: |
+        set -euo pipefail
+        cd "${GITHUB_WORKSPACE}/${WORKING_DIRECTORY}"
+
+        # Validated rather than treated as truthy, so a typo is a failure and
+        # not a silent skip of the gate. Same shape as LINTIAN in entrypoint.sh.
+        case "${DEP8}" in
+            on) ;;
+            off)
+                echo "DEP8=off, not running DEP-8 tests"
+                exit 0
+                ;;
+            *)
+                echo "FATAL: unknown DEP8 '${DEP8}' (expected 'on' or 'off')" >&2
+                exit 1
+                ;;
+        esac
+
+        # Absence is not a failure. Most of the fleet ships no debian/tests/
+        # yet; the packaging-metadata checklist adds one to each package on its
+        # next revision, and this starts running it the moment it lands.
+        if [ ! -f debian/tests/control ]; then
+            echo "no debian/tests/control, nothing to run"
+            exit 0
+        fi
+
+        # iproute2 explicitly: autopkgtest's docker backend shells out to `ip`
+        # but only Recommends it, so --no-install-recommends drops it. Runner
+        # images happen to carry it, which would hide the omission until one
+        # stopped.
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends autopkgtest iproute2
+
+        # This runs on the runner rather than inside the builder image, and it
+        # has to. autopkgtest grants the isolation-container capability only
+        # when the testbed runs a real init, and it refuses to let the null
+        # backend claim it at all: VirtSubproc asserts the scratch directory is
+        # not visible to the host, which for the null backend it always is. A
+        # test marked isolation-container therefore SKIPs on every backend
+        # reachable from inside a container. debian:$SUITE carries no init, so
+        # build a testbed with the smallest one autopkgtest accepts.
+        testbed="$(mktemp -d)"
+        {
+            echo "FROM debian:${SUITE}"
+            echo "RUN apt-get update && apt-get install -y --no-install-recommends sysvinit-core && rm -rf /var/lib/apt/lists/*"
+        } > "${testbed}/Dockerfile"
+        docker build -q -t "dep8-testbed:${SUITE}" "${testbed}"
+
+        # --setup-commands because debian:* images carry no apt lists, and the
+        # testbed needs them to resolve the package's own Depends.
+        summary="$(mktemp)"
+        dep8_run() {
+            autopkgtest \
+                --summary-file "${summary}" \
+                --setup-commands 'apt-get update -qq' \
+                debs/*.deb . \
+                -- docker --init "dep8-testbed:${SUITE}"
+        }
+
+        # One retry. A functional test can fail on timing in a way a compile
+        # cannot: croc's starts a relay, waits for it to listen, and moves 8 MiB
+        # through it. A real breakage fails both times.
+        rc=0
+        dep8_run || rc=$?
+        if [ "${rc}" -ne 0 ]; then
+            echo "::warning::DEP-8 run failed (exit ${rc}), retrying once"
+            rc=0
+            dep8_run || rc=$?
+        fi
+
+        cat "${summary}"
+
+        # A skipped test is not a passing one. autopkgtest does exit non-zero
+        # when anything skips, but the verdicts are asserted directly as well,
+        # so the gate does not depend on that exit table staying as it is.
+        if [ "${rc}" -ne 0 ]; then
+            echo "FATAL: autopkgtest exited ${rc}" >&2
+            exit 1
+        fi
+        if [ ! -s "${summary}" ]; then
+            echo "FATAL: autopkgtest recorded no verdicts" >&2
+            exit 1
+        fi
+        awk '$2 != "PASS" { print "FATAL: not a pass: " $0 > "/dev/stderr"; bad = 1 }
+             END { exit bad + 0 }' "${summary}"

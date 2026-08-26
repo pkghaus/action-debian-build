@@ -9,11 +9,13 @@ name: Build Debian packages
 # exists to prove a packaging repository's tags build cleanly everywhere before
 # the archive picks them up.
 #
-# The build step mirrors action.yml rather than calling it: inside a reusable
-# workflow, `uses: ./` resolves against the *caller's* checkout, and referencing
-# this repository by tag from inside itself would need the tag to exist before
-# the commit that names it. Six duplicated lines in one repository is the cheaper
-# of the two problems.
+# The build step calls this repository's own action. `uses: ./` would not work
+# here, because inside a reusable workflow it resolves against the *caller's*
+# checkout, so the reference is by tag. That was rejected once, when no tag
+# existed yet and the step was six lines of `docker run`; v1 has existed since
+# 2026-08-15 and the step now also runs DEP-8, so duplicating it would mean
+# maintaining the same logic in two places and leaving our own published action
+# with no consumer inside the org.
 #
 # Actions are pinned to commit SHAs: a full-length SHA is the only immutable
 # reference GitHub offers, and a tag can be moved by anyone who compromises the
@@ -41,6 +43,13 @@ on:
         default: >
           [{"arch":"amd64","runner":"ubuntu-24.04"},
            {"arch":"arm64","runner":"ubuntu-24.04-arm"}]
+      dep8:
+        description: >
+          Run each package's DEP-8 tests after building it, when it ships
+          debian/tests/. "on" or "off". A repository carrying debian/tests/ for
+          Debian's own CI that does not want them run here sets this to "off".
+        type: string
+        default: "on"
     secrets:
       APT_DISPATCH_TOKEN:
         description: >
@@ -78,18 +87,19 @@ jobs:
           # unauthenticated.
           persist-credentials: false
 
-      - name: Build package
-        # Values reach the shell through the environment rather than being
-        # interpolated into the script, which is how GitHub recommends handling
-        # any expression in a run block.
-        env:
-          BUILDER_IMAGE: ${{ inputs.image }}
+      - name: Build and test package
+        # First-party, so a tag rather than a SHA, and it has to be the major:
+        # `uses: ./` in a reusable workflow resolves against the caller's
+        # checkout, not this repository, and `uses:` takes no expression, so
+        # there is no way to name this commit. A caller on build.yml@v1 gets the
+        # matching action, since both move together. A caller on an exact tag
+        # gets this file frozen and the action still tracking v1, which the
+        # README's Versioning section states rather than glosses over.
+        uses: pkghaus/action-debian-build@v1
+        with:
+          IMAGE: ${{ inputs.image }}
           SUITE: ${{ matrix.suite }}
-        run: |
-          docker run --rm \
-            --volume "$PWD:/target" \
-            --workdir /target \
-            "${BUILDER_IMAGE}:${SUITE}"
+          DEP8: ${{ inputs.dep8 }}
 
       - name: Upload package
         uses: actions/upload-artifact@v7

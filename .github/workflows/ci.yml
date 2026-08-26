@@ -25,10 +25,22 @@ jobs:
       - name: Install linters
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends shellcheck python3-yaml
+          sudo apt-get install -y --no-install-recommends python3-yaml
 
       - name: shellcheck
-        run: shellcheck -x entrypoint.sh tests/lib.sh tests/run.sh tests/test-*.sh tests/fake-git
+        # Pinned by digest rather than taken from the runner image, matching
+        # pkghaus/apt and pkghaus/signed-commit. Its shellcheck moves on its own
+        # schedule and the info-level checks differ between versions, so a lint
+        # that passes locally and fails in CI for no reason anyone changed is
+        # worse than a slightly stale linter. The image is distroless, so a
+        # `source`d path that exists only at runtime has to be marked in the
+        # script rather than resolved here.
+        run: |
+          docker run --rm \
+            --volume "$PWD:/repo" \
+            --workdir /repo \
+            koalaman/shellcheck@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d \
+            -x entrypoint.sh tests/lib.sh tests/run.sh tests/test-*.sh tests/fake-git
 
       - name: actionlint
         # Pinned by digest for the same reason the actions are pinned by SHA.
@@ -40,7 +52,18 @@ jobs:
             -color
 
       - name: Reject duplicate YAML keys
-        run: python3 tests/yamlcheck.py .github/workflows/*.yml
+        run: python3 tests/yamlcheck.py .github/workflows/*.yml action.yml
+
+      - name: shellcheck the composite action's run blocks
+        # actionlint shellchecks run blocks, but only in .github/workflows.
+        # action.yml's steps are shell too, and the longer half of this action.
+        # Same pinned checker as the step above, so every line of shell in this
+        # repository is judged by one version.
+        env:
+          SHELLCHECK: >-
+            docker run --rm --volume ${{ github.workspace }}:/repo --workdir /repo
+            koalaman/shellcheck@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d
+        run: python3 tests/shellcheck-composite.py action.yml
 
   test:
     name: test / ${{ matrix.suite }} / ${{ matrix.target.arch }}

@@ -68,6 +68,36 @@ fi
 
 rm -rf "$work"
 
+# --- an unknown DBGSYM value is rejected rather than silently meaning off ----
+# The regression this guards: the value was only ever compared against 1, so
+# every other spelling disabled dbgsym instead of enabling it, silently.
+work="$(make_workdir "$IMAGE")"
+printf 'DBGSYM=yes\n' >> "$work/package.conf"
+run_build "$IMAGE" "$work"
+
+if [ "$BUILD_STATUS" -ne 0 ] && grep -q "unknown DBGSYM" "$BUILD_LOG"; then
+    report pass "an unknown DBGSYM value is rejected"
+else
+    report fail "an unknown DBGSYM value is rejected" \
+        "status=$BUILD_STATUS; log: $BUILD_LOG"
+fi
+
+rm -rf "$work"
+
+# --- DBGSYM accepts words as well as digits ---------------------------------
+work="$(make_workdir "$IMAGE")"
+printf 'DBGSYM=off\n' >> "$work/package.conf"
+run_build "$IMAGE" "$work"
+
+if [ "$BUILD_STATUS" -eq 0 ]; then
+    report pass "DBGSYM=off is accepted"
+else
+    report fail "DBGSYM=off is accepted" \
+        "status=$BUILD_STATUS; log: $BUILD_LOG"
+fi
+
+rm -rf "$work"
+
 # --- an unknown toolchain is rejected rather than silently ignored -----------
 work="$(make_workdir "$IMAGE")"
 printf 'TOOLCHAIN=haskell\n' >> "$work/package.conf"

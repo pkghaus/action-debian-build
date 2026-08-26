@@ -12,6 +12,9 @@
 # can pool all three without two different binaries claiming one version.
 
 set -euxo pipefail
+# Without this, set -e stops at the edge of a command substitution: a function
+# called as x="$(f)" keeps running after a failure instead of aborting.
+shopt -s inherit_errexit
 
 TARGET="${TARGET:-$(pwd)}"
 CLONE_ATTEMPTS="${CLONE_ATTEMPTS:-5}"
@@ -56,6 +59,20 @@ load_config() {
         off | warn | error) ;;
         *)
             echo "FATAL: unknown LINTIAN '$LINTIAN' (expected 'off', 'warn' or 'error')" >&2
+            return 1
+            ;;
+    esac
+
+    # Normalised to 0/1 here so the check below stays a comparison against one
+    # value. It used to be that comparison alone, which made every spelling
+    # except a literal 1 mean off: DBGSYM=on, =yes and =true each disabled the
+    # package they were written to enable, with no error and nothing in the log.
+    # Words are accepted because the neighbouring knob takes them.
+    case "$DBGSYM" in
+        0 | off) DBGSYM=0 ;;
+        1 | on)  DBGSYM=1 ;;
+        *)
+            echo "FATAL: unknown DBGSYM '$DBGSYM' (expected '0'/'off' or '1'/'on')" >&2
             return 1
             ;;
     esac
@@ -176,6 +193,9 @@ version_qualifier() {
             # and unstable images cannot be told apart from inside (both report
             # forky/sid with no VERSION_ID), which is why the suite comes from
             # DEB_SUITE and only the number comes from os-release.
+            # Not part of this repository and not present in the linter's
+            # own image, so shellcheck is told not to try to follow it.
+            # shellcheck source=/dev/null
             id="$(. /etc/os-release && printf '%s' "${VERSION_ID:-}")"
 
             [ -n "$id" ] || {
