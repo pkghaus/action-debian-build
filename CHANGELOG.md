@@ -8,6 +8,16 @@ Consumers pin the floating major (`@v1`), which always points at the newest
 `package.conf` keys, artifact names — is a breaking change and gets a new
 major. Exact tags never move.
 
+## [1.2.0] - 2026-08-27
+
+### Added
+
+- `DEP8_EXTRA_DEBS` in `package.conf`: packages from this archive that the DEP-8
+  testbed needs, fetched and handed to autopkgtest alongside the built package.
+  The testbed is Debian only, so a dependency Debian does not carry cannot
+  otherwise resolve. Space-separated; a value that is not a list of Debian
+  package names fails the build before anything is installed.
+
 ## [1.1.0] - 2026-08-26
 
 ### Added
@@ -60,6 +70,7 @@ First release.
   and upgrades order correctly across them. Artifacts keep their canonical
   Debian filenames.
 
-[Unreleased]: https://github.com/pkghaus/action-debian-build/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/pkghaus/action-debian-build/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/pkghaus/action-debian-build/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/pkghaus/action-debian-build/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/pkghaus/action-debian-build/releases/tag/v1.0.0

@@ -25,7 +25,7 @@ for test in "$here"/test-*.sh; do
     echo "==> $(basename "$test")"
 
     case "$(basename "$test")" in
-        test-yamlcheck.sh) "$test" || status=1 ;;
+        test-yamlcheck.sh|test-dep8-extra.sh) "$test" || status=1 ;;
         *)                 "$test" "$image" || status=1 ;;
     esac
 done

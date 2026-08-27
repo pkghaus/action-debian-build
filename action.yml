@@ -74,6 +74,19 @@ runs:
             exit 0
         fi
 
+        extra_dir=""
+        extra_debs=""
+        if [ -f package.conf ]; then
+            extra_debs="$(sh -c '. ./package.conf >/dev/null 2>&1; printf "%s" "${DEP8_EXTRA_DEBS:-}"')"
+        fi
+        case "${extra_debs}" in
+            "") ;;
+            *[!a-z0-9.+\ -]*)
+                echo "FATAL: DEP8_EXTRA_DEBS is not a list of Debian package names: '${extra_debs}'" >&2
+                exit 1
+                ;;
+        esac
+
         # iproute2 explicitly: autopkgtest's docker backend shells out to `ip`
         # but only Recommends it, so --no-install-recommends drops it. Runner
         # images happen to carry it, which would hide the omission until one
@@ -96,6 +109,44 @@ runs:
         } > "${testbed}/Dockerfile"
         docker build -q -t "dep8-testbed:${SUITE}" "${testbed}"
 
+        # A package in this archive can depend on another one: betterlockscreen
+        # needs i3lock-color, which Debian does not carry. The testbed has
+        # Debian and the package under test and nothing else, so a dependency
+        # like that has to be handed to autopkgtest alongside it.
+        #
+        # It deliberately does NOT come from adding the archive as an apt source
+        # inside the testbed. Reaching it over HTTPS would put ca-certificates
+        # in every testbed, and a testbed WITHOUT ca-certificates is what
+        # catches a package that speaks TLS and forgot to declare it -- which
+        # has happened here, and shipped.
+        #
+        # autopkgtest pins the debs it is given at priority 1002, so a package
+        # named here can never shadow the one just built.
+        if [ -n "${extra_debs}" ]; then
+            extra_dir="$(mktemp -d)"
+            docker run --rm --volume "${extra_dir}:/out" "debian:${SUITE}" sh -ec "
+                apt-get update -qq
+                apt-get install -y -qq --no-install-recommends ca-certificates curl >/dev/null
+                curl -fsSL -o /usr/share/keyrings/pkghaus-archive-keyring.gpg \
+                    https://apt.pkg.haus/pkghaus-archive-keyring.gpg
+                echo 'deb [signed-by=/usr/share/keyrings/pkghaus-archive-keyring.gpg] https://apt.pkg.haus ${SUITE} main' \
+                    > /etc/apt/sources.list.d/pkghaus.list
+                apt-get update -qq
+                cd /out && apt-get download ${extra_debs}
+            "
+            extra_list=("${extra_dir}"/*.deb)
+            if [ ! -e "${extra_list[0]}" ]; then
+                echo "FATAL: DEP8_EXTRA_DEBS='${extra_debs}' fetched nothing" >&2
+                exit 1
+            fi
+            echo "DEP8_EXTRA_DEBS fetched for the testbed: ${extra_list[*]##*/}"
+        fi
+
+        dep8_debs=(debs/*.deb)
+        if [ -n "${extra_dir}" ]; then
+            dep8_debs+=("${extra_list[@]}")
+        fi
+
         # --setup-commands because debian:* images carry no apt lists, and the
         # testbed needs them to resolve the package's own Depends.
         summary="$(mktemp)"
@@ -103,7 +154,7 @@ runs:
             autopkgtest \
                 --summary-file "${summary}" \
                 --setup-commands 'apt-get update -qq' \
-                debs/*.deb . \
+                "${dep8_debs[@]}" . \
                 -- docker --init "dep8-testbed:${SUITE}"
         }
 

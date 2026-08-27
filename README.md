@@ -138,6 +138,21 @@ want of a capability fails rather than passing quietly.
 The whole run is retried once before the build is failed, because a functional
 test can fail on timing in a way a compile cannot.
 
+The testbed is Debian plus the package that was just built, and nothing else.
+If your package depends on another package from the same archive, name it in
+`package.conf` and it is fetched and handed to autopkgtest alongside yours:
+
+```sh
+DEP8_EXTRA_DEBS=some-other-package
+```
+
+Space-separated for more than one. This exists instead of adding the archive as
+an apt source inside the testbed, because reaching it over HTTPS would put
+`ca-certificates` in every testbed -- and a testbed *without* `ca-certificates`
+is what catches a package that speaks TLS and forgot to declare it. Packages
+named here cannot shadow the one under test: autopkgtest pins the debs it is
+given above anything else.
+
 ### Debug symbols
 
 `dh_strip` automatically splits debug symbols into a `<package>-dbgsym` package
