@@ -41,8 +41,15 @@ LABEL org.opencontainers.image.title="deb-builder" \
       org.opencontainers.image.description="Debian package build environment for action-debian-build" \
       org.opencontainers.image.licenses="Apache-2.0"
 
-COPY entrypoint.sh /usr/local/bin/deb-build
-RUN chmod 0755 /usr/local/bin/deb-build
+# /usr/bin rather than /usr/local/bin, and the distinction is not cosmetic.
+# dpkg records Build-Tainted-By: usr-local-has-programs in every .buildinfo it
+# writes when /usr/local holds an executable, and this entrypoint was the only
+# one in the image -- so every package this builder has ever produced carries
+# that taint, caused by the builder itself rather than by anything about the
+# package. Measured before and after: the field is present with the entrypoint
+# in /usr/local and absent with it here.
+COPY entrypoint.sh /usr/bin/deb-build
+RUN chmod 0755 /usr/bin/deb-build
 
 WORKDIR /target
-ENTRYPOINT ["/usr/local/bin/deb-build"]
+ENTRYPOINT ["/usr/bin/deb-build"]

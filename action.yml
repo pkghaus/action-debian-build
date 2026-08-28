@@ -37,10 +37,38 @@ runs:
         SUITE: ${{ inputs.SUITE }}
         WORKING_DIRECTORY: ${{ inputs.WORKING_DIRECTORY }}
       run: |
+        set -euo pipefail
+
+        # Resolve the tag to a digest and build from that, rather than running
+        # the tag directly. `:<suite>` moves whenever the image is rebuilt, so a
+        # tag records which image was *meant*, never which one was used, and a
+        # build is unauditable afterwards. Resolving here puts the answer in the
+        # log and makes the run itself immutable.
+        #
+        # Resolved rather than hardcoded: pinning a digest in this file would
+        # mean cutting an action release for every image rebuild, and consumers
+        # pin this action at @v1.
+        # Both of these are allowed to fail, and a local image makes both fail.
+        # An image built on the runner and never pushed cannot be pulled at all
+        # (`pull access denied`) and has no RepoDigests to inspect. That is the
+        # shape this repository's own `action /` jobs use, and a fork building
+        # its own builder does the same, so neither is an error. If the image is
+        # genuinely absent, `docker run` below says so plainly.
+        docker pull --quiet "${IMAGE}:${SUITE}" >/dev/null 2>&1 || true
+        digest="$(docker image inspect --format '{{ index .RepoDigests 0 }}' \
+            "${IMAGE}:${SUITE}" 2>/dev/null || true)"
+        if [ -n "${digest}" ]; then
+            echo "builder image: ${digest}"
+            ref="${digest}"
+        else
+            echo "builder image: ${IMAGE}:${SUITE} (no digest; not from a registry)"
+            ref="${IMAGE}:${SUITE}"
+        fi
+
         docker run --rm \
           --volume "${GITHUB_WORKSPACE}/${WORKING_DIRECTORY}:/target" \
           --workdir /target \
-          "${IMAGE}:${SUITE}"
+          "${ref}"
 
     - name: Run DEP-8 tests
       shell: bash

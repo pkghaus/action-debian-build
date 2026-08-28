@@ -185,7 +185,7 @@ To try a change to `entrypoint.sh` without rebuilding the image, mount over it:
 ```sh
 docker run --rm \
     --volume "$PWD:/target" --workdir /target \
-    --volume "/path/to/entrypoint.sh:/usr/local/bin/deb-build:ro" \
+    --volume "/path/to/entrypoint.sh:/usr/bin/deb-build:ro" \
     ghcr.io/pkghaus/deb-builder:trixie
 ```
 
