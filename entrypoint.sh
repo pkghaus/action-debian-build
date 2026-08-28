@@ -165,6 +165,19 @@ get_sources() {
     done
 
     cd "$SOURCE_DIR"
+
+    # What the ref actually resolved to. VERSION names a git tag, and a tag is
+    # mutable: upstream can move v1.2.3 onto different code and every later
+    # build silently produces different bytes under the same version. The commit
+    # is content-addressed and cannot move, so it is the only durable answer to
+    # "which source produced this package".
+    #
+    # SLSA models the same split -- the ref goes in externalParameters, the
+    # resolved commit in resolvedDependencies as digest.gitCommit -- and Debian
+    # has no equivalent: DEP-12 records a Repository URL with no revision, and
+    # Vcs-* in debian/control describes the packaging repository, not upstream.
+    UPSTREAM_COMMIT="$(git rev-parse HEAD)"
+    printf 'upstream: %s %s -> %s\n' "$UPSTREAM" "$VERSION" "$UPSTREAM_COMMIT" >&2
 }
 
 version_qualifier() {
@@ -286,6 +299,18 @@ collect() {
 
         case "$artefact" in
             *.deb) collected=$((collected + 1)) ;;
+            # A sidecar sharing the buildinfo's stem, so the two travel together
+            # and a reader can pair them without parsing either. The buildinfo
+            # records the environment a package was built in; this records the
+            # source it was built from, which nothing in the .deb, the
+            # .buildinfo or debian/control carries.
+            *.buildinfo)
+                printf 'Repository: %s\nRef: %s\nCommit: %s\n' \
+                    "$UPSTREAM" "$VERSION" "$UPSTREAM_COMMIT" \
+                    > "$dest/${name%.buildinfo}.source"
+                chown "$uid:$gid" "$dest/${name%.buildinfo}.source"
+                chmod 0644 "$dest/${name%.buildinfo}.source"
+                ;;
         esac
     done
 

@@ -23,7 +23,9 @@ with `lintian` and collecting artifacts all live here and are shared.
 | `WORKING_DIRECTORY` | `.` | Directory holding `debian/` and `package.conf`, relative to the workspace. |
 | `DEP8` | `on` | `off` skips the package's DEP-8 tests. Any other value is an error. |
 
-Packages land in `debs/` inside that directory.
+Packages land in `debs/` inside that directory, alongside two records of how
+they were built: the `.buildinfo` dpkg emits, and a `.source` naming the
+upstream commit. See [Build records](#build-records).
 
 A reusable workflow is included that fans the build out across every suite and
 architecture, so a packaging repository can validate a tag with a few lines —
@@ -87,6 +89,8 @@ LINTIAN=warn
 | `DBGSYM` | no | `0` | `1` or `on` builds and publishes the automatic `-dbgsym` package, `0` or `off` does not. Any other value is an error. |
 | `LINTIAN` | no | `warn` | `off` skips checks, `warn` reports them, `error` fails the build on an error tag. |
 | `SETUP_HOOK` | no | - | Shell run after the toolchain and before the build, in the entrypoint's own shell, so `PATH` changes stick. |
+| `DEP8_EXTRA_DEBS` | no | - | Packages from your own archive that the DEP-8 testbed needs, space-separated. See [DEP-8 tests](#dep-8-tests). |
+| `CLONE_ATTEMPTS` | no | `5` | How many times to retry cloning upstream before giving up. Each retry backs off, and a partial checkout is cleared first. |
 
 The package name appears nowhere in this configuration: artifacts are named from
 what `dpkg` itself emits, so there is nothing to keep in sync with
@@ -171,8 +175,9 @@ docker run --rm \
     ghcr.io/pkghaus/deb-builder:trixie
 ```
 
-Packages land in `debs/`, owned by whoever owns the checkout. Build a tag other
-than the pinned one by passing it in:
+Packages land in `debs/`, owned by whoever owns the checkout, with the
+`.buildinfo` and `.source` records beside them. Build a tag other than the
+pinned one by passing it in:
 
 ```sh
 docker run --rm --env VERSION=v0.22.1 \
@@ -196,6 +201,32 @@ executable bit set as an *executable* config and tries to run it:
 ```sh
 find debian -type f ! -name rules -exec chmod 0644 {} +
 ```
+
+## Build records
+
+Each build leaves two files in `debs/` beside the packages.
+
+`<source>_<version>_<arch>.buildinfo` is dpkg's own record of the environment
+the package was built in: every installed build dependency with its version, the
+architecture, the toolchain dpkg could see.
+
+`<source>_<version>_<arch>.source` records what was built, which nothing in the
+`.deb`, the `.buildinfo` or `debian/control` carries:
+
+```
+Repository: https://github.com/nektos/act
+Ref: v0.2.89
+Commit: 7fd1a60b01f91b314f59955a4e4d4e80d8edf11d
+```
+
+`VERSION` names a git tag, and a tag is mutable: upstream can move it onto
+different code, and every later build would then produce different bytes under
+the same version with nothing recording the change. The commit is
+content-addressed, so it is the durable answer to which source produced a
+package. The split follows SLSA, where the ref is an external parameter and the
+resolved commit a resolved dependency carrying `digest.gitCommit`.
+
+The two share a filename stem so they travel together.
 
 ## Images
 
@@ -254,13 +285,20 @@ Two references inside float, both deliberately:
   action at its own commit instead: `uses: ./` inside a reusable workflow
   resolves against the *caller's* checkout rather than this repository, and
   `uses:` accepts no expression.
-- The builder image is `ghcr.io/pkghaus/deb-builder:<suite>`, a tag that moves
-  as the images are rebuilt. The `image` input names a repository, not a
-  reference, so it cannot pin a digest either.
+- The builder image is named by tag, `ghcr.io/pkghaus/deb-builder:<suite>`, and
+  that tag moves as the images are rebuilt. The `image` input names a
+  repository rather than a reference, so it cannot carry a digest itself.
 
 An exact tag therefore freezes these files, not the code they run. Pin one to
-stop workflow and action changes arriving; nothing here pins the build
-environment.
+stop workflow and action changes arriving.
+
+The build environment is pinned per run rather than per release: the action
+resolves the tag to a digest before building, prints it, and runs the digest.
+Which image a given build used is answerable afterwards from its log, and the
+image cannot change underneath a run in progress. Two builds a week apart may
+still use different images, which is what following a tag means; hardcoding a
+digest here would instead mean cutting a release for every image rebuild, and
+consumers pin this action at `@v1`.
 
 Releasing:
 
