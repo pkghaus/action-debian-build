@@ -28,7 +28,7 @@ they were built: the `.buildinfo` dpkg emits, and a `.source` naming the
 upstream commit. See [Build records](#build-records).
 
 A reusable workflow is included that fans the build out across every suite and
-architecture, so a packaging repository can validate a tag with a few lines —
+architecture, so a packaging repository can validate a tag with a few lines,
 see [Validating a packaging repository](#validating-a-packaging-repository).
 Publishing is the [pkg.haus APT archive](https://apt.pkg.haus)'s job: it builds
 its packages from source itself, so nothing here uploads anywhere.
@@ -63,11 +63,22 @@ jobs:
     secrets: inherit
 ```
 
+Its inputs:
+
+| Input | Default | Meaning |
+| --- | --- | --- |
+| `image` | `ghcr.io/pkghaus/deb-builder` | Builder image, without the suite tag. |
+| `suites` | `["trixie","testing","unstable"]` | JSON array of suites to build for. |
+| `targets` | amd64 + arm64 | JSON array of `{arch, runner}` objects. |
+| `working_directory` | `.` | Directory holding `package.conf` and `debian/`. A repository holding several packages passes the one to build. |
+| `dep8` | `on` | `off` skips the package's DEP-8 tests. |
+
 That builds every suite and architecture in parallel, failing loudly if any leg
 does not produce a package. With the org secret `APT_DISPATCH_TOKEN` available
 to the caller, a green tag build also notifies the pkg.haus archive to ingest
-immediately; without the secret that final job is a no-op. Publishing is not this workflow's job - the pkg.haus
-APT archive builds its packages from source itself. The trigger has to live in
+immediately; without the secret that final job is a no-op. Publishing is not
+this workflow's job: the pkg.haus APT archive builds its packages from source
+itself. The trigger has to live in
 the calling repository - a reusable workflow cannot declare the event that
 starts it.
 
