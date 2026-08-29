@@ -43,6 +43,14 @@ on:
         default: >
           [{"arch":"amd64","runner":"ubuntu-24.04"},
            {"arch":"arm64","runner":"ubuntu-24.04-arm"}]
+      working_directory:
+        description: >
+          Directory holding package.conf and debian/, relative to the checkout.
+          Defaults to the repository root, which is the shape every
+          single-package repository has. A repository holding several packages
+          passes the one to build.
+        type: string
+        default: "."
       dep8:
         description: >
           Run each package's DEP-8 tests after building it, when it ships
@@ -100,14 +108,23 @@ jobs:
           IMAGE: ${{ inputs.image }}
           SUITE: ${{ matrix.suite }}
           DEP8: ${{ inputs.dep8 }}
+          WORKING_DIRECTORY: ${{ inputs.working_directory }}
 
       - name: Upload package
         uses: actions/upload-artifact@v7
         with:
-          name: deb-${{ matrix.suite }}-${{ matrix.target.arch }}
+          # The directory is part of the name because a caller building several
+          # packages in one run would otherwise upload the same name twice, and
+          # upload-artifact rejects that. A single-package caller passes "." and
+          # keeps the name it has always had.
+          # Inverted on purpose. In a GitHub expression `a && b || c` yields c
+          # whenever b is falsy, and '' is falsy, so the obvious spelling
+          # (wd == '.' && '' || format(...)) gives every existing caller
+          # deb-.-trixie-amd64. The non-empty branch has to be in the middle.
+          name: deb-${{ inputs.working_directory != '.' && format('{0}-', inputs.working_directory) || '' }}${{ matrix.suite }}-${{ matrix.target.arch }}
           # .deb plus its .buildinfo, for inspection only -- the archive builds
           # its own copies from source.
-          path: debs/*
+          path: ${{ inputs.working_directory }}/debs/*
           if-no-files-found: error
           retention-days: 7
 
