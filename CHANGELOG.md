@@ -8,6 +8,31 @@ Consumers pin the floating major (`@v1`), which always points at the newest
 `package.conf` keys, artifact names — is a breaking change and gets a new
 major. Exact tags never move.
 
+## [1.3.1] - 2026-08-31
+
+### Fixed
+
+- A caller building several packages in one run verified only one of them. The
+  reusable workflow's concurrency group did not include `working_directory`, so
+  every leg of a matrix shared a group and `cancel-in-progress` cancelled all
+  but the last. The cancelled legs reported "cancelled", not failure, so the run
+  was green.
+
+## [1.3.0] - 2026-08-29
+
+### Added
+
+- `working_directory` on the reusable workflow: build a package held in a
+  subdirectory, which is what lets one repository hold every package.
+- A `.source` sidecar beside each `.deb`, naming the upstream commit built.
+
+### Changed
+
+- The builder image is resolved to a digest before use, rather than pulled by
+  tag.
+- The entrypoint moved out of `/usr/local/bin`, so `.buildinfo` no longer
+  reports `Build-Tainted-By: usr-local-has-programs`.
+
 ## [1.2.0] - 2026-08-27
 
 ### Added
