@@ -167,6 +167,14 @@ runs:
                 echo "FATAL: DEP8_EXTRA_DEBS='${extra_debs}' fetched nothing" >&2
                 exit 1
             fi
+            # The container writes as root, so these land root-owned on the
+            # host -- apt says so itself, refusing to drop to _apt because it
+            # cannot access the bind mount. autopkgtest then runs as the runner
+            # user and hard-links each deb into its output directory, and under
+            # fs.protected_hardlinks=1, which GitHub runners set, you may not
+            # link a file you do not own. It fails as a bare EPERM traceback
+            # from os.link that names neither ownership nor the sysctl.
+            sudo chown "$(id -u):$(id -g)" "${extra_dir}" "${extra_list[@]}"
             echo "DEP8_EXTRA_DEBS fetched for the testbed: ${extra_list[*]##*/}"
         fi
 

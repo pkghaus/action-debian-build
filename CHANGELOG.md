@@ -8,6 +8,16 @@ Consumers pin the floating major (`@v1`), which always points at the newest
 `package.conf` keys, artifact names — is a breaking change and gets a new
 major. Exact tags never move.
 
+## [1.3.2] - 2026-08-31
+
+### Fixed
+
+- `DEP8_EXTRA_DEBS` never worked on a GitHub runner. The debs are fetched by a
+  container, so they land root-owned, and `autopkgtest` runs as the runner user
+  and hard-links them into its output directory: under
+  `fs.protected_hardlinks=1` that is EPERM. They are chowned to the runner
+  before `autopkgtest` sees them.
+
 ## [1.3.1] - 2026-08-31
 
 ### Fixed
@@ -95,7 +105,10 @@ First release.
   and upgrades order correctly across them. Artifacts keep their canonical
   Debian filenames.
 
-[Unreleased]: https://github.com/pkghaus/action-debian-build/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/pkghaus/action-debian-build/compare/v1.3.2...HEAD
+[1.3.2]: https://github.com/pkghaus/action-debian-build/compare/v1.3.1...v1.3.2
+[1.3.1]: https://github.com/pkghaus/action-debian-build/compare/v1.3.0...v1.3.1
+[1.3.0]: https://github.com/pkghaus/action-debian-build/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/pkghaus/action-debian-build/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/pkghaus/action-debian-build/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/pkghaus/action-debian-build/releases/tag/v1.0.0
