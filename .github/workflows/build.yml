@@ -70,7 +70,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: build-${{ github.repository }}-${{ github.ref }}
+  # working_directory is in the key because it is what makes two legs of one
+  # matrix different. Without it every package in a multi-package run shares a
+  # group, and cancel-in-progress means each cancels the one before: a pull
+  # request touching 25 packages verified exactly one of them, green, with the
+  # other 24 reading "cancelled" where nobody looks. Invisible until the first
+  # such pull request, because every earlier one touched a single package.
+  group: build-${{ github.repository }}-${{ github.ref }}-${{ inputs.working_directory }}
   cancel-in-progress: true
 
 jobs:
