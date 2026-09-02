@@ -23,9 +23,9 @@ with `lintian` and collecting artifacts all live here and are shared.
 | `WORKING_DIRECTORY` | `.` | Directory holding `debian/` and `package.conf`, relative to the workspace. |
 | `DEP8` | `on` | `off` skips the package's DEP-8 tests. Any other value is an error. |
 
-Packages land in `debs/` inside that directory, alongside two records of how
-they were built: the `.buildinfo` dpkg emits, and a `.source` naming the
-upstream commit. See [Build records](#build-records).
+Packages land in `debs/` inside that directory, alongside the source package
+they were built from and two records of how: the `.buildinfo` dpkg emits, and a
+`.source` naming the upstream commit. See [Build records](#build-records).
 
 A reusable workflow is included that fans the build out across every suite and
 architecture, so a packaging repository can validate a tag with a few lines,
@@ -186,9 +186,9 @@ docker run --rm \
     ghcr.io/pkghaus/deb-builder:trixie
 ```
 
-Packages land in `debs/`, owned by whoever owns the checkout, with the
-`.buildinfo` and `.source` records beside them. Build a tag other than the
-pinned one by passing it in:
+Packages land in `debs/`, owned by whoever owns the checkout, with the source
+package and the `.buildinfo` and `.source` records beside them. Build a tag
+other than the pinned one by passing it in:
 
 ```sh
 docker run --rm --env VERSION=v0.22.1 \
@@ -215,7 +215,8 @@ find debian -type f ! -name rules -exec chmod 0644 {} +
 
 ## Build records
 
-Each build leaves two files in `debs/` beside the packages.
+Each build leaves two records in `debs/` beside the packages, and the source
+package they describe.
 
 `<source>_<version>_<arch>.buildinfo` is dpkg's own record of the environment
 the package was built in: every installed build dependency with its version, the
@@ -238,6 +239,98 @@ package. The split follows SLSA, where the ref is an external parameter and the
 resolved commit a resolved dependency carrying `digest.gitCommit`.
 
 The two share a filename stem so they travel together.
+
+### The source package
+
+`--build=full` rather than a binary-only build, so `debs/` also holds the
+`.dsc`, the upstream tarball and the packaging tarball. That is what makes the
+`.buildinfo` usable rather than merely readable.
+
+Given a `.buildinfo` alone, `debrebuild` resolves the entire build environment
+from `snapshot.debian.org` -- every `Installed-Build-Depends` entry at its exact
+version, at a timestamp it works out itself -- and then stops, because it cannot
+find the source. Its own documented limitation is that it "assumes that all
+packages were at some point part of Debian unstable main", and these never were.
+That limitation applies to the source package, not to the build dependencies: it
+looks for the `.dsc` in the same directory as the record first and only calls
+`debsnap` when it is absent, so publishing the two together is the whole fix.
+
+Two details follow from that:
+
+`Build-Path` is written, via `--buildinfo-option=--always-include-path`. dpkg
+emits the field only when the build directory starts with `/build/`, and
+`debrebuild`'s mmdebstrap builder calls `dirname()` on it unconditionally --
+without it the rebuild dies with `fileparse(): need a valid pathname`, and
+`--no-respect-build-path` does not help because it sets the same variable to
+undef. Builds therefore happen in `/build/<source-dir>`, which is also what
+Debian's buildds use.
+
+The upstream tarball is generated here, because a `3.0 (quilt)` package needs
+one to exist and what the builder has is a git checkout. Everything that varies
+between machines is pinned -- entry order, timestamps, ownership -- and the
+result is byte-identical across architectures, core counts, build paths,
+independent clones and all three builder images. It has to be: the suite
+qualifier lands on the Debian revision, so `1.0-1` and `1.0-1~haus13+1` share an
+upstream version and therefore one tarball.
+
+The clone's `.git` is removed once the commit has been read, so the tree the
+build sees is the tree a rebuilder gets. Go stamps `vcs.revision`, `vcs.time`
+and `vcs.modified` into any binary it builds inside a repository, and a source
+package cannot carry one, so without this every Go package was unreproducible
+from its own `.dsc`.
+
+A build fails if any file under `debian/` is older than the changelog entry.
+`dpkg-source` clamps mtimes to `SOURCE_DATE_EPOCH`, which normalises anything
+newer and preserves anything older, so a stale timestamp would make one leg's
+source package differ from another's. Nothing in the normal path can cause it --
+`git clone` and `actions/checkout` both stamp current time -- but a cache
+restore or an archive extraction that preserves timestamps would.
+
+### Recording a compiler is not the same as pinning one
+
+`.source` also carries the toolchain that actually ran, when there is one:
+
+```
+Rustc: rustc 1.98.0 (88d9e12ae 2026-08-18)
+Go: go version go1.27.0 linux/amd64
+```
+
+Read from inside the source tree, which is the only place it is true. rustup
+installs current stable and then honours a `rust-toolchain.toml`; Go's
+`GOTOOLCHAIN` follows `go.mod`. Both resolve against the working directory, so
+the same command run from `$HOME` reports the bootstrap instead.
+
+This is provenance, not mechanism. `debrebuild` reads only the `.buildinfo` and
+will never open this file. What makes a compiler reproducible is pinning it
+somewhere that ships inside the `.dsc`: `go.mod` does this for Go without any
+help, and for Rust it means a `rust-toolchain.toml` from upstream or a
+`RUSTUP_TOOLCHAIN` in `debian/rules`.
+
+Both languages use the same shape, and it is the shape that matters: a
+**bootstrap that dpkg can see**, plus an **exact version named in the source**,
+fetched checksum-verified.
+
+| | bootstrap, in `Installed-Build-Depends` | exact version, in the `.dsc` |
+| --- | --- | --- |
+| Go | `golang-go` | `go` / `toolchain` in `go.mod` |
+| Rust | `rustup` | `rust-toolchain.toml`, or `RUSTUP_TOOLCHAIN` in `debian/rules` |
+
+Debian ships `rustup` in trixie and sid. Its shims are `/usr/bin/rustc` and
+`/usr/bin/cargo`, and it honours both pinning mechanisms exactly as upstream's
+installer does. So `Build-Depends: rustup` is all a Rust package needs, and it
+is what makes the package rebuildable from its `.buildinfo` alone: a rebuilder
+resolves `rustup` from `snapshot.debian.org`, unpacks the `.dsc`, and the pin
+inside it selects the same compiler.
+
+Verified on trixie, whose own `rustc` is 1.85.0: ouch builds with 1.93.0 from
+its `rust-toolchain.toml`, and zola with 1.98.0 from its `debian/rules`. Neither
+touches Debian's rustc, and both record `rustup (= 1.27.1-3+b1)`.
+
+`TOOLCHAIN=rust` predates this and curls a toolchain into `~/.cargo`, which dpkg
+cannot see and no `.buildinfo` records. It still works, for callers that have
+not moved. Setting it *and* declaring `rustup` is refused: the curled toolchain
+wins on PATH while the record names the declared one, which is precisely the
+misrecording this replaces.
 
 ## Images
 

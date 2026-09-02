@@ -8,6 +8,50 @@ Consumers pin the floating major (`@v1`), which always points at the newest
 `package.conf` keys, artifact names — is a breaking change and gets a new
 major. Exact tags never move.
 
+## [1.4.0] - 2026-09-01
+
+### Added
+
+- Builds emit their source package (`.dsc` plus tarballs) into `debs/`, and
+  record `Build-Path`. Those are the two things `debrebuild` needs: given a
+  `.buildinfo` alone it resolves the whole environment from
+  `snapshot.debian.org` and then fails to find the source, and its mmdebstrap
+  builder dies in `dirname()` without the path.
+- `.source` names the compiler that ran (`Rustc:`, `Go:`), read from inside the
+  source tree so it reports the toolchain `rust-toolchain.toml` or `go.mod`
+  selected rather than the one rustup installed.
+
+### Fixed
+
+- Every Go package embedded git metadata that nothing rebuilding it could
+  reproduce. `go build` stamps `vcs.revision`, `vcs.time` and `vcs.modified`
+  into the binary whenever it finds a repository, the builder clones one, and a
+  source package cannot carry it. The clone's `.git` is removed once the commit
+  has been read. Found by rebuilding croc with `debrebuild`: 160 bytes of
+  difference, all of it this.
+
+### Changed
+
+- A Rust package should declare `Build-Depends: rustup` instead of setting
+  `TOOLCHAIN=rust`. Debian ships rustup, so the bootstrap lands in the
+  `.buildinfo` where a rebuilder can resolve it, and the pin in
+  `rust-toolchain.toml` or `debian/rules` selects the compiler -- the same shape
+  Go already had. `TOOLCHAIN=rust` still works; setting both is refused.
+- rustup installs with `--default-toolchain none`. The version comes from the
+  package (`rust-toolchain.toml`, or `RUSTUP_TOOLCHAIN` in `debian/rules`) and
+  rustup fetches it on first use; installing `stable` as well downloaded a
+  second complete toolchain, because rustup treats the channel and the version
+  it points at as separate installs. A Rust package naming no version now fails
+  instead of building with whatever stable is that day.
+- Builds happen in `/build/<source-dir>` instead of a `mktemp` directory, so the
+  published `Build-Path` is the same on every leg. Packages whose output depends
+  on the build path -- Rust ones do -- therefore produce different bytes than
+  before, and become reproducible for anyone rebuilding at the recorded path.
+- A build fails if any file under `debian/` predates the changelog entry.
+  `dpkg-source` preserves mtimes older than `SOURCE_DATE_EPOCH` while
+  normalising newer ones, which would make one leg's source package differ from
+  another's.
+
 ## [1.3.2] - 2026-08-31
 
 ### Fixed
