@@ -25,13 +25,12 @@ native_version="0.0.1${qualifier}"
 
 # --- native package: a .dsc and the single source tarball, no orig ----------
 # Native is the minority format (one package in the fleet) so the shared fixture
-# is quilt, and this case converts it. The version loses its Debian revision
-# because dpkg rejects "native package version may not have a revision" -- a
-# check --build=binary never reached, and the reason the fleet's only native
-# package is versioned 2026.08.15 rather than 2026.08.15-1.
-work="$(make_workdir "$IMAGE")"
-printf '3.0 (native)\n' > "$work/debian/source/format"
-sed -i '1s/(0\.0\.1-1)/(0.0.1)/' "$work/debian/changelog"
+# is quilt, and make_native_workdir converts it. The version loses its Debian
+# revision because dpkg rejects "native package version may not have a revision"
+# -- a check --build=binary never reached, and the reason the fleet's only
+# native package is versioned 2026.08.15 rather than 2026.08.15-1. It also drops
+# UPSTREAM, which a native package must not set; test-native.sh covers why.
+work="$(make_native_workdir)"
 run_build "$IMAGE" "$work"
 
 if [ -f "$work/debs/deb-build-fixture_${native_version}.dsc" ]; then
@@ -57,7 +56,27 @@ else
     report fail "a native package produces no orig tarball"
 fi
 
-# --- the two fields debrebuild needs ----------------------------------------
+# debrebuild verifies the .dsc against this block. An unlisted .dsc is accepted
+# without any verification at all, so a record that omits it does not bind the
+# source it claims to describe.
+buildinfo="$(find "$work/debs" -name '*.buildinfo' -print -quit)"
+if grep -q " deb-build-fixture_${native_version}.dsc\$" "$buildinfo"; then
+    report pass "the buildinfo checksums its own .dsc"
+else
+    report fail "the buildinfo checksums its own .dsc"
+fi
+
+rm -rf "$work"
+
+# --- the two fields debrebuild needs, on a package that has an upstream -----
+# A fresh quilt workdir rather than the native one above: both fields below are
+# about the upstream path, and a native package has none. They used to share a
+# workdir because the native case was a quilt fixture with its format flipped,
+# so UPSTREAM was still set and Build-Path still read /build/upstream. Once a
+# native package stopped cloning anything, that coupling made two assertions
+# about upstreams run against a package without one.
+work="$(make_workdir "$IMAGE")"
+run_build "$IMAGE" "$work"
 buildinfo="$(find "$work/debs" -name '*.buildinfo' -print -quit)"
 
 # Without Build-Path, debrebuild's mmdebstrap builder dies in dirname() with
@@ -68,15 +87,6 @@ if grep -qx 'Build-Path: /build/upstream' "$buildinfo"; then
 else
     report fail "the buildinfo records a deterministic Build-Path" \
         "got: $(grep '^Build-Path' "$buildinfo" || echo '<absent>')"
-fi
-
-# debrebuild verifies the .dsc against this block. An unlisted .dsc is accepted
-# without any verification at all, so a record that omits it does not bind the
-# source it claims to describe.
-if grep -q " deb-build-fixture_${native_version}.dsc\$" "$buildinfo"; then
-    report pass "the buildinfo checksums its own .dsc"
-else
-    report fail "the buildinfo checksums its own .dsc"
 fi
 
 # --- .source carries the source, and no invented toolchain ------------------

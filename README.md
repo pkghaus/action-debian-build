@@ -94,12 +94,33 @@ LINTIAN=warn
 
 | Key | Required | Default | Meaning |
 | --- | --- | --- | --- |
-| `UPSTREAM` | yes | - | Git URL of the upstream project. Any URL `git clone` accepts. |
-| `VERSION` | yes | - | Tag or branch to build. Overridable from the environment for local one-off builds. |
+| `UPSTREAM` | yes, unless native | - | Git URL of the upstream project. Any URL `git clone` accepts. |
+| `VERSION` | yes, unless native | - | Tag or branch to build. Overridable from the environment for local one-off builds. |
 | `TOOLCHAIN` | no | `none` | `rust` bootstraps rustup's stable toolchain; `none` relies on `debian/control`. |
 | `DBGSYM` | no | `0` | `1` or `on` builds and publishes the automatic `-dbgsym` package, `0` or `off` does not. Any other value is an error. |
 | `LINTIAN` | no | `warn` | `off` skips checks, `warn` reports them, `error` fails the build on an error tag. |
 | `SETUP_HOOK` | no | - | Shell run after the toolchain and before the build, in the entrypoint's own shell, so `PATH` changes stick. |
+
+### Native packages have no upstream
+
+If `debian/source/format` says `3.0 (native)`, the packaging directory **is**
+the source: there is no release feed to track and no tag to clone. `UPSTREAM`
+and `VERSION` are then not merely optional but refused, because a leftover value
+is likelier to be a stale file than an intention, and ignoring it would build
+something other than what `package.conf` appears to ask for.
+
+```sh
+# A native package's package.conf. The file must still exist -- callers use it
+# to recognise a directory as a package -- but it names no upstream.
+TOOLCHAIN=none
+DBGSYM=0
+```
+
+The source tree is then named after the changelog's source name rather than a
+repository basename, and everything in the packaging directory except
+`debian/`, `package.conf` and `debs/` is copied into it. The `.source` sidecar
+records `Repository: none (native package; the source package is the source)`
+rather than leaving the field blank, which would read as a lookup that failed.
 | `DEP8_EXTRA_DEBS` | no | - | Packages from your own archive that the DEP-8 testbed needs, space-separated. See [DEP-8 tests](#dep-8-tests). |
 | `CLONE_ATTEMPTS` | no | `5` | How many times to retry cloning upstream before giving up. Each retry backs off, and a partial checkout is cleared first. |
 
@@ -427,6 +448,7 @@ up. CI runs it on every suite and architecture.
 | `test-build.sh` | default build, artifact naming, `DBGSYM` both ways, `.buildinfo` collection, all three `LINTIAN` modes, `SETUP_HOOK` including a failing one, `VERSION` override, wrong-architecture diagnosis |
 | `test-retry.sh` | transient clone failures, partial-checkout cleanup, retry exhaustion, `CLONE_ATTEMPTS` bounding |
 | `test-config.sh` | missing `package.conf`, missing `UPSTREAM`/`VERSION`, unknown `TOOLCHAIN`, unknown `LINTIAN`, unknown `DBGSYM` and its word form |
+| `test-native.sh` | a native package builds with no `UPSTREAM`, emits its `.dsc` and tarball, is named after the package, keeps `package.conf` out of the source, and is refused if it sets `UPSTREAM` |
 | `test-yamlcheck.sh` | the YAML gate accepts the workflows and rejects a duplicate key |
 
 Clone failures are driven by a `git` shim (`tests/fake-git`) rather than by

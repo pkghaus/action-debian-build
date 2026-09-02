@@ -64,6 +64,29 @@ make_workdir() {
     printf '%s\n' "$work"
 }
 
+# Like make_workdir, but the fixture's upstream/ contents are hoisted to the top
+# level (a native package's source root is the packaging directory itself) and
+# no git repository is created, because nothing is cloned.
+make_native_workdir() {
+    local work
+    work="$(mktemp -d)"
+    cp -a "$TESTS_DIR/fixture/." "$work/"
+
+    mv "$work/upstream"/* "$work/"
+    rmdir "$work/upstream"
+
+    printf '3.0 (native)\n' > "$work/debian/source/format"
+    # Native versions carry no Debian revision.
+    sed -i '1s/(0\.0\.1-1)/(0.0.1)/' "$work/debian/changelog"
+    printf '# A native package: no UPSTREAM, no VERSION.\nTOOLCHAIN=none\nDBGSYM=0\n' \
+        > "$work/package.conf"
+
+    find "$work/debian" -type f ! -name rules -exec chmod 0644 {} +
+    chmod 0755 "$work/debian/rules"
+    chmod -R a+rwX "$work"
+    printf '%s\n' "$work"
+}
+
 # run_build <image> <workdir> [docker args...] -- captures combined output in
 # BUILD_LOG and the exit status in BUILD_STATUS rather than failing the script,
 # so tests can assert on failures too.

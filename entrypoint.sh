@@ -47,13 +47,51 @@ load_config() {
         VERSION="$version_override"
     fi
 
-    : "${UPSTREAM:?package.conf must set UPSTREAM}"
-    : "${VERSION:?package.conf must set VERSION, or pass it in the environment}"
+    # A native package is its own upstream: there is no release feed to track
+    # and no tag to clone, so UPSTREAM and VERSION describe nothing. Everything
+    # the package is made of already sits in the packaging directory. The same
+    # test on the same file gates the bump automation in pkghaus/packages
+    # (is_native in plan-bumps.sh and bump-upstream.sh), so a package is native
+    # in one place and native everywhere.
+    #
+    # Read from the packaging directory rather than a clone that may not happen.
+    NATIVE=0
+    case "$(cat "$TARGET/debian/source/format" 2>/dev/null)" in
+        *native*) NATIVE=1 ;;
+    esac
+
+    if [ "$NATIVE" -eq 1 ]; then
+        # Refused rather than ignored. Both were meaningful before the source
+        # moved in-tree, so a leftover value is likelier to be a stale
+        # package.conf than an intention, and silently ignoring it would build
+        # something other than what the file appears to ask for.
+        [ -z "${UPSTREAM:-}" ] || {
+            echo "FATAL: $TARGET is a native package and must not set UPSTREAM" >&2
+            return 1
+        }
+        [ -z "${VERSION:-}" ] || {
+            echo "FATAL: $TARGET is a native package and must not set VERSION" >&2
+            return 1
+        }
+    else
+        : "${UPSTREAM:?package.conf must set UPSTREAM}"
+        : "${VERSION:?package.conf must set VERSION, or pass it in the environment}"
+    fi
+
     TOOLCHAIN="${TOOLCHAIN:-none}"
     DBGSYM="${DBGSYM:-0}"
     LINTIAN="${LINTIAN:-warn}"
     SETUP_HOOK="${SETUP_HOOK:-}"
-    SOURCE_DIR="${SOURCE_DIR:-$(basename "${UPSTREAM%.git}")}"
+
+    # With no UPSTREAM to take a basename from, the changelog's source name is
+    # the authority -- and it is the better name anyway: the old derivation gave
+    # the keyring a source tree called archive-keyring/, after the repository
+    # rather than after the package.
+    if [ -n "${UPSTREAM:-}" ]; then
+        SOURCE_DIR="${SOURCE_DIR:-$(basename "${UPSTREAM%.git}")}"
+    else
+        SOURCE_DIR="${SOURCE_DIR:-$(sed -n '1s/ .*//p' "$TARGET/debian/changelog" 2>/dev/null)}"
+    fi
 
     case "$LINTIAN" in
         off | warn | error) ;;
@@ -80,7 +118,7 @@ load_config() {
     # get_sources interpolates this into rm -rf, so an empty value must not
     # reach it.
     [ -n "$SOURCE_DIR" ] || {
-        echo "FATAL: no source directory could be derived from UPSTREAM=$UPSTREAM" >&2
+        echo "FATAL: no source directory could be derived from UPSTREAM=${UPSTREAM:-} or debian/changelog" >&2
         return 1
     }
 
@@ -170,6 +208,28 @@ get_sources() {
     # --always-include-path, and what Debian's own buildds use.
     mkdir -p /build
     cd /build
+
+    # No upstream to clone: the packaging directory IS the source. Copied rather
+    # than built in place, so the build still happens at /build/<source> like
+    # every other package -- Build-Path keeps the same shape on every leg, and
+    # the workdir the runner mounted is left untouched.
+    #
+    # debian/ is excluded because the overlay later is its single source, and
+    # copying it here would make two. package.conf is build configuration rather
+    # than source, and no other package's source package carries one. debs/ is
+    # output from a previous local run.
+    if [ -z "${UPSTREAM:-}" ]; then
+        rm -rf "$SOURCE_DIR"
+        mkdir -p "$SOURCE_DIR"
+        tar -C "$TARGET" \
+            --exclude=./debian --exclude=./debs --exclude=./package.conf \
+            -cf - . | tar -C "$SOURCE_DIR" -xf -
+        cd "$SOURCE_DIR"
+        UPSTREAM_COMMIT=""
+        printf 'upstream: none (native); source taken from %s\n' "$TARGET" >&2
+        return 0
+    fi
+
     attempt=1
     delay=2
 
@@ -503,8 +563,16 @@ collect() {
             # travels inside the .dsc.
             *.buildinfo)
                 {
-                    printf 'Repository: %s\nRef: %s\nCommit: %s\n' \
-                        "$UPSTREAM" "$VERSION" "$UPSTREAM_COMMIT"
+                    # A native package has no upstream to name, and saying so
+                    # with empty fields would read as a failed lookup. The
+                    # source package IS the source: the .dsc and the tarball
+                    # beside this file are the whole answer.
+                    if [ -n "${UPSTREAM:-}" ]; then
+                        printf 'Repository: %s\nRef: %s\nCommit: %s\n' \
+                            "$UPSTREAM" "$VERSION" "$UPSTREAM_COMMIT"
+                    else
+                        printf 'Repository: none (native package; the source package is the source)\n'
+                    fi
                     resolved_toolchains
                 } > "$dest/${name%.buildinfo}.source"
                 chown "$uid:$gid" "$dest/${name%.buildinfo}.source"
