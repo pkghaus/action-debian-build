@@ -101,6 +101,28 @@ LINTIAN=warn
 | `LINTIAN` | no | `warn` | `off` skips checks, `warn` reports them, `error` fails the build on an error tag. |
 | `SETUP_HOOK` | no | - | Shell run after the toolchain and before the build, in the entrypoint's own shell, so `PATH` changes stick. |
 
+### The upstream revision travels in the source package
+
+The clone's `.git` is removed before the build: a source package cannot contain
+one, and anything reading it would make our build differ from a rebuild of our
+own `.dsc`. That is what makes Go binaries reproducible, since `go build` stamps
+`vcs.revision` into any binary built inside a repository.
+
+The cost is that a build can no longer ask git what revision it is. So the
+builder writes the commit it cloned to **`debian/upstream-commit`**, before the
+build and inside the directory that ships in the `.dsc`, where a rebuilder gets
+the same value:
+
+```make
+UPSTREAM_COMMIT := $(shell cat debian/upstream-commit 2>/dev/null)
+```
+
+An environment variable cannot serve here: dpkg records only
+`DEB_BUILD_OPTIONS` and `SOURCE_DATE_EPOCH` in the `.buildinfo`'s `Environment`,
+so a rebuilder would not replay anything else and the rebuild would differ.
+
+A native package has no upstream and so gets no file.
+
 ### Native packages have no upstream
 
 If `debian/source/format` says `3.0 (native)`, the packaging directory **is**
@@ -448,7 +470,7 @@ up. CI runs it on every suite and architecture.
 | `test-build.sh` | default build, artifact naming, `DBGSYM` both ways, `.buildinfo` collection, all three `LINTIAN` modes, `SETUP_HOOK` including a failing one, `VERSION` override, wrong-architecture diagnosis |
 | `test-retry.sh` | transient clone failures, partial-checkout cleanup, retry exhaustion, `CLONE_ATTEMPTS` bounding |
 | `test-config.sh` | missing `package.conf`, missing `UPSTREAM`/`VERSION`, unknown `TOOLCHAIN`, unknown `LINTIAN`, unknown `DBGSYM` and its word form |
-| `test-native.sh` | a native package builds with no `UPSTREAM`, emits its `.dsc` and tarball, is named after the package, keeps `package.conf` out of the source, and is refused if it sets `UPSTREAM` |
+| `test-native.sh` | no `debian/upstream-commit`, a native package builds with no `UPSTREAM`, emits its `.dsc` and tarball, is named after the package, keeps `package.conf` out of the source, and is refused if it sets `UPSTREAM` |
 | `test-yamlcheck.sh` | the YAML gate accepts the workflows and rejects a duplicate key |
 
 Clone failures are driven by a `git` shim (`tests/fake-git`) rather than by

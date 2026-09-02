@@ -464,6 +464,29 @@ build() {
     rm -rf debian
     cp -a "$TARGET/debian" .
 
+    # The upstream revision, written where the source package can carry it.
+    #
+    # The clone's .git is removed before the build, because a source package
+    # cannot contain one and anything that reads it would make our build differ
+    # from a rebuild of our own .dsc. That is correct and it is what makes Go
+    # binaries reproducible -- but three packages were reading it for their
+    # version string and quietly lost it: berry's configure fell back to a stale
+    # hardcoded 0.1.7, vergen emitted its placeholder into viddy, and vegeta's
+    # own rules ran `git rev-parse HEAD` against a tree with no .git.
+    #
+    # An environment variable cannot fix that: dpkg records only
+    # DEB_BUILD_OPTIONS and SOURCE_DATE_EPOCH in the .buildinfo's Environment,
+    # so a rebuilder would not replay it and the rebuild would differ. Inside
+    # debian/ it travels in the .dsc, which is the same move that pins the Rust
+    # toolchain. It also answers a question `apt-get source` could not: which
+    # upstream commit this source was taken from.
+    #
+    # Before assert_debian_mtimes, so a file written now is newer than
+    # SOURCE_DATE_EPOCH rather than tripping the guard.
+    if [ -n "${UPSTREAM_COMMIT:-}" ]; then
+        printf '%s\n' "$UPSTREAM_COMMIT" > debian/upstream-commit
+    fi
+
     # Reads Build-Depends straight from the debian/ just copied in. Preferred
     # over devscripts' mk-build-deps because it needs no extra packages in the
     # image and no `yes |` pipe, while producing an identical package.

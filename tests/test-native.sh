@@ -59,6 +59,14 @@ else
         "$(printf '%s\n' "$tar_contents" | tr '\n' ' ')"
 fi
 
+# There is no upstream revision to record, so the file the builder writes for
+# every other package must not appear with an empty or invented value.
+if ! tar tf "$(find "$work/debs" -name '*.tar.*' -print -quit)" | grep -q 'debian/upstream-commit$'; then
+    report pass "a native package's source carries no upstream-commit file"
+else
+    report fail "a native package's source carries no upstream-commit file"
+fi
+
 # An empty Repository field would read as a lookup that failed rather than a
 # question that does not apply.
 if grep -q '^Repository: none (native' "$work"/debs/*.source; then

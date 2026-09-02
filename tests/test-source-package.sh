@@ -89,6 +89,32 @@ else
         "got: $(grep '^Build-Path' "$buildinfo" || echo '<absent>')"
 fi
 
+# --- the upstream revision travels inside the source package ----------------
+# The clone's .git is deleted before the build, so anything that read it for a
+# version string lost it. This file is how that information survives into the
+# .dsc, where a rebuilder gets the same value and the build stays reproducible.
+if [ -f "$work/debian/upstream-commit" ]; then
+    report fail "the commit file is written into the build, not the workdir" \
+        "it leaked back into $work/debian"
+else
+    report pass "the commit file is written into the build, not the workdir"
+fi
+
+commit_in_src="$(tar xOf "$(find "$work/debs" -name '*.debian.tar.*' -print -quit)" \
+    debian/upstream-commit 2>/dev/null || true)"
+if printf '%s' "$commit_in_src" | grep -q '^[0-9a-f]\{40\}$'; then
+    report pass "the source package carries the upstream commit"
+else
+    report fail "the source package carries the upstream commit" \
+        "got: '${commit_in_src}'"
+fi
+
+if [ "$commit_in_src" = "$(grep '^Commit: ' "$(find "$work/debs" -name '*.source' -print -quit)" | cut -d' ' -f2)" ]; then
+    report pass "the commit in the source matches the one in .source"
+else
+    report fail "the commit in the source matches the one in .source"
+fi
+
 # --- .source carries the source, and no invented toolchain ------------------
 source_file="$(find "$work/debs" -name '*.source' -print -quit)"
 
