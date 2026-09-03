@@ -40,7 +40,7 @@ jobs:
             --volume "$PWD:/repo" \
             --workdir /repo \
             koalaman/shellcheck@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d \
-            -x entrypoint.sh tests/lib.sh tests/run.sh tests/test-*.sh tests/fake-git
+            -x entrypoint.sh tests/lib.sh tests/run.sh tests/test-*.sh tests/fake-git tests/fake-curl
 
       - name: actionlint
         # Pinned by digest for the same reason the actions are pinned by SHA.

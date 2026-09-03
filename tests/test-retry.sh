@@ -29,8 +29,11 @@ else
         "status=$BUILD_STATUS debs=$(count_debs "$work"); log: $BUILD_LOG"
 fi
 
-if grep -q 'clone attempt 1/5 failed' "$BUILD_LOG" \
-    && grep -q 'clone attempt 2/5 failed' "$BUILD_LOG"; then
+# The label is the retried operation, so the line names what could not be
+# fetched rather than only that a clone failed. Both attempts have to appear:
+# a retry that reported only its last failure would hide how many there were.
+if grep -q 'cloning .* attempt 1/5 failed' "$BUILD_LOG" \
+    && grep -q 'cloning .* attempt 2/5 failed' "$BUILD_LOG"; then
     report pass "each failed attempt is reported"
 else
     report fail "each failed attempt is reported" "log: $BUILD_LOG"
