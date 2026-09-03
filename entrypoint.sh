@@ -19,6 +19,35 @@ shopt -s inherit_errexit
 TARGET="${TARGET:-$(pwd)}"
 CLONE_ATTEMPTS="${CLONE_ATTEMPTS:-5}"
 
+# Run a command until it succeeds, with the attempt budget and doubling
+# backoff the clone has always had. Every network fetch in this file gets the
+# same treatment: the clone retries because GitHub cancels HTTP/2 streams when
+# several builds clone at once, and the rustup bootstrap has the same exposure
+# to a third-party host on up to 54 build legs in a fleet-wide wave.
+#
+# $1 labels the messages, the rest is the command. A caller needing to clean up
+# between attempts passes a function, because the clear is part of the attempt.
+retry() { # label command...
+    local label="$1"; shift
+    local attempt=1 delay=2
+
+    while true; do
+        if "$@"; then
+            return 0
+        fi
+
+        if [ "$attempt" -ge "$CLONE_ATTEMPTS" ]; then
+            echo "FATAL: $label failed after $CLONE_ATTEMPTS attempts" >&2
+            return 1
+        fi
+
+        echo "$label attempt $attempt/$CLONE_ATTEMPTS failed; retrying in ${delay}s" >&2
+        sleep "$delay"
+        attempt=$((attempt + 1))
+        delay=$((delay * 2))
+    done
+}
+
 # Baked in by the Dockerfile so artifacts self-identify without the workflow
 # renaming them afterwards.
 : "${DEB_SUITE:?the image must define DEB_SUITE}"
@@ -179,8 +208,28 @@ dependencies() {
             # ~/.cargo is invisible to dpkg and appears nowhere. That is the
             # same shape Go already has, golang-go as the bootstrap and the
             # exact version named in the source.
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-                | sh -s -- -y --default-toolchain none
+            # Fetched to a file and then run, rather than piped. A pipeline
+            # cannot be retried as one command, and in a pipe the status that
+            # reaches the shell is sh's, not curl's -- a truncated script can
+            # leave sh reporting success on a partial install.
+            _rustup_attempt() {
+                local script status
+                script="$(mktemp)"
+                if ! curl --proto '=https' --tlsv1.2 -sSf --max-time 120 \
+                    -o "$script" https://sh.rustup.rs; then
+                    rm -f "$script"
+                    return 1
+                fi
+                # No `-s --` here: those told sh to read the script from
+                # stdin, which is the pipe form. With a file, everything after
+                # it is passed to the script, so `-s` reached rustup-init and
+                # it exited with "unexpected argument '-s' found".
+                sh "$script" -y --default-toolchain none
+                status=$?
+                rm -f "$script"
+                return "$status"
+            }
+            retry "fetching the rustup installer" _rustup_attempt || return 1
             # shellcheck source=/dev/null
             . "$HOME/.cargo/env"
             ;;
@@ -199,7 +248,6 @@ dependencies() {
 }
 
 get_sources() {
-    local attempt delay
 
     # /build rather than a mktemp directory, because the path is published now:
     # dpkg writes Build-Path into the .buildinfo, debrebuild rebuilds at exactly
@@ -230,30 +278,16 @@ get_sources() {
         return 0
     fi
 
-    attempt=1
-    delay=2
-
-    while true; do
-        # A cancelled fetch leaves a partial tree behind, so a bare retry would
-        # fail on "directory exists" rather than retrying the clone. GitHub
-        # cancels HTTP/2 streams when several builds clone the same repo at
-        # once, which is exactly when this loop earns its keep.
+    # A cancelled fetch leaves a partial tree behind, so a bare retry would
+    # fail on "directory exists" rather than retrying the clone. GitHub cancels
+    # HTTP/2 streams when several builds clone the same repo at once, which is
+    # exactly when this earns its keep. The clear belongs to the attempt, which
+    # is why this is a function and not the clone alone.
+    _clone_attempt() {
         rm -rf "$SOURCE_DIR"
-
-        if git clone --branch "$VERSION" -- "$UPSTREAM" "$SOURCE_DIR"; then
-            break
-        fi
-
-        if [ "$attempt" -ge "$CLONE_ATTEMPTS" ]; then
-            echo "FATAL: cloning $UPSTREAM at $VERSION failed after $CLONE_ATTEMPTS attempts" >&2
-            return 1
-        fi
-
-        echo "clone attempt $attempt/$CLONE_ATTEMPTS failed; retrying in ${delay}s" >&2
-        sleep "$delay"
-        attempt=$((attempt + 1))
-        delay=$((delay * 2))
-    done
+        git clone --branch "$VERSION" -- "$UPSTREAM" "$SOURCE_DIR"
+    }
+    retry "cloning $UPSTREAM at $VERSION" _clone_attempt || return 1
 
     cd "$SOURCE_DIR"
 

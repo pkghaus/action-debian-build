@@ -1,0 +1,28 @@
+#!/bin/sh
+#
+# Test shim. Mounted ahead of the real curl in PATH so the rustup bootstrap's
+# retry can be driven deterministically instead of by a real outage.
+#
+#   CURL_FAIL_TIMES  how many rustup.rs fetches to fail before delegating
+#   CURL_FAIL_STATE  counter file (defaults to /tmp/fake-curl.count)
+#
+# Only sh.rustup.rs is intercepted. Anything else this image curls during a
+# build has to keep working, or the test would be measuring the wrong failure.
+
+set -eu
+
+state="${CURL_FAIL_STATE:-/tmp/fake-curl.count}"
+limit="${CURL_FAIL_TIMES:-0}"
+
+case "$*" in
+    *sh.rustup.rs*)
+        seen="$(cat "$state" 2>/dev/null || echo 0)"
+        if [ "$seen" -lt "$limit" ]; then
+            echo "$((seen + 1))" > "$state"
+            echo "fake-curl: simulated rustup fetch failure $((seen + 1))/$limit" >&2
+            exit 7
+        fi
+        ;;
+esac
+
+exec /usr/bin/curl "$@"
