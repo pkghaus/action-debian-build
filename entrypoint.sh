@@ -670,13 +670,35 @@ check() {
     esac
 }
 
+# 88% of this pipeline's runner time is inside this script, and until now it was
+# one number per leg: 170 seconds for croc, 600 for zola, with no way to tell an
+# image pull from a dependency install from a compile. Every optimisation past
+# that was guesswork.
+#
+# Each phase is still called directly by main below, rather than through a
+# wrapper taking the function name. A wrapper reads better and cost a green
+# lint: passing these as arguments makes shellcheck lose track of who invokes
+# what, and it starts reporting the retry helpers' callbacks as dead code
+# (SC2329). Timing is not worth disabling a check that finds real dead code.
+PHASE_TOTAL=0
+phase_done() { # name start-epoch
+    local elapsed
+    elapsed=$(( $(date +%s) - $2 ))
+    PHASE_TOTAL=$(( PHASE_TOTAL + elapsed ))
+    # Printed as each phase finishes rather than as one summary at the end, so
+    # a run that dies in build still reports what the phases before it cost.
+    echo "==> phase $1: ${elapsed}s (cumulative ${PHASE_TOTAL}s)"
+}
+
 main() {
-    load_config
-    dependencies
-    get_sources
-    build
-    collect
-    check
+    local t
+    t="$(date +%s)"; load_config;  phase_done load_config  "$t"
+    t="$(date +%s)"; dependencies; phase_done dependencies "$t"
+    t="$(date +%s)"; get_sources;  phase_done get_sources  "$t"
+    t="$(date +%s)"; build;        phase_done build        "$t"
+    t="$(date +%s)"; collect;      phase_done collect      "$t"
+    t="$(date +%s)"; check;        phase_done check        "$t"
+    echo "==> build complete in ${PHASE_TOTAL}s"
 }
 
 main
