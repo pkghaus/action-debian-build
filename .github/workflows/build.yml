@@ -156,7 +156,13 @@ jobs:
             echo "APT_DISPATCH_TOKEN not provided; not notifying the archive."
             exit 0
           fi
+          # Retried, because this is the one call in the release chain whose
+          # failure is silent and never repaired: the tag exists, the archive
+          # is never told, and nothing re-fires it. A retried POST is safe --
+          # the ingest re-plans from scratch and the archive's concurrency
+          # group collapses duplicates into one run.
           curl --fail-with-body -sS -X POST \
+            --retry 3 --retry-all-errors --retry-delay 2 \
             -H "Authorization: Bearer ${TOKEN}" \
             -H "Accept: application/vnd.github+json" \
             https://api.github.com/repos/pkghaus/apt/dispatches \
