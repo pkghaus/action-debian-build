@@ -8,6 +8,45 @@ Consumers pin the floating major (`@v1`), which always points at the newest
 `package.conf` keys, artifact names — is a breaking change and gets a new
 major. Exact tags never move.
 
+## [1.7.0] - 2026-09-04
+
+### Added
+
+- Each build phase reports how long it took as it finishes, and the run reports
+  a total. A leg used to be a single number with no way to separate an image
+  pull from a dependency install from a compile. A build that dies partway
+  still reports the phases before it, and reports no duration for the one that
+  did not finish.
+
+### Fixed
+
+- The rustup installer is fetched on the same retry budget as the upstream
+  clone, and to a file rather than piped into `sh`. In a pipe the status the
+  shell sees is `sh`'s, so a truncated download could report success on a
+  partial install.
+- The dispatch that tells the archive a tag is ready is retried. Its failure
+  was silent and unrepaired: the tag exists, the archive is never told, and
+  nothing re-fires it.
+
+## [1.6.0] - 2026-09-02
+
+### Added
+
+- `debian/upstream-commit`, written before the build, for packages whose build
+  embeds the upstream revision. It travels inside the `.dsc`, so a rebuild
+  resolves the same value; an environment variable cannot, because dpkg records
+  only `DEB_BUILD_OPTIONS` and `SOURCE_DATE_EPOCH`. A native package gets none.
+
+## [1.5.0] - 2026-09-02
+
+### Changed
+
+- A native package is its own source. Where `debian/source/format` says native
+  the packaging directory is copied instead of an upstream being cloned, and
+  `UPSTREAM` or `VERSION` in `package.conf` is refused rather than ignored: a
+  leftover value is likelier to be a stale file than an intention. The source
+  tree takes its name from the changelog.
+
 ## [1.4.0] - 2026-09-01
 
 ### Added
@@ -149,7 +188,11 @@ First release.
   and upgrades order correctly across them. Artifacts keep their canonical
   Debian filenames.
 
-[Unreleased]: https://github.com/pkghaus/action-debian-build/compare/v1.3.2...HEAD
+[Unreleased]: https://github.com/pkghaus/action-debian-build/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/pkghaus/action-debian-build/compare/v1.6.0...v1.7.0
+[1.6.0]: https://github.com/pkghaus/action-debian-build/compare/v1.5.0...v1.6.0
+[1.5.0]: https://github.com/pkghaus/action-debian-build/compare/v1.4.0...v1.5.0
+[1.4.0]: https://github.com/pkghaus/action-debian-build/compare/v1.3.2...v1.4.0
 [1.3.2]: https://github.com/pkghaus/action-debian-build/compare/v1.3.1...v1.3.2
 [1.3.1]: https://github.com/pkghaus/action-debian-build/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/pkghaus/action-debian-build/compare/v1.2.0...v1.3.0
