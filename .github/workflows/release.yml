@@ -14,6 +14,17 @@ name: Release
 on:
   push:
     tags: ['v[0-9]+.[0-9]+.[0-9]+']
+  # For a tag that already exists. A missed release cannot be repaired by
+  # re-pushing its tag: this project's policy is that exact tags never move,
+  # and moving one would change what `@v1.3.0` resolves to for anyone pinned
+  # there. The dispatch republishes the notes without touching the tag, and it
+  # is how the seven releases missing on 2026-09-06 were backfilled.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to publish a release for (e.g. v1.3.0)
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -25,12 +36,38 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          # The dispatch names a tag, and its changelog section has to be read
+          # from a tree that HAS that section -- master, not the tag, because a
+          # tag predating a later correction to its own notes should still
+          # publish the corrected text.
+          ref: master
           persist-credentials: false
+
+      - name: Resolve the tag
+        id: tag
+        env:
+          DISPATCH_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          tag="${DISPATCH_TAG:-$REF_NAME}"
+          case "$tag" in
+              v[0-9]*.[0-9]*.[0-9]*) ;;
+              *) echo "FATAL: '$tag' is not a vX.Y.Z tag" >&2; exit 1 ;;
+          esac
+          # A dispatch can name anything, so confirm the tag exists before
+          # publishing a release that would otherwise create it.
+          git rev-parse -q --verify "refs/tags/$tag" >/dev/null 2>&1 || {
+              git fetch -q --depth 1 origin "refs/tags/$tag:refs/tags/$tag" || {
+                  echo "FATAL: tag $tag does not exist" >&2; exit 1
+              }
+          }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       - name: Extract this version's changelog section
         id: notes
         env:
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ steps.tag.outputs.tag }}
         run: |
           set -euo pipefail
           version="${TAG#v}"
@@ -60,7 +97,7 @@ jobs:
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ steps.tag.outputs.tag }}
           BODY: ${{ steps.notes.outputs.body }}
         run: |
           set -euo pipefail
