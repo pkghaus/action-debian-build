@@ -55,6 +55,16 @@ make_workdir() {
             git config --global --add safe.directory /target/upstream
             git init -q -b main .
             git add -A
+            # A FIXED commit date, because the mtimes in the orig tarball
+            # come from it. Left to the clock, two calls to this function make
+            # two different upstream commits, and the byte-identical assertion
+            # in test-source-package.sh would be testing the clock rather than
+            # the builder. It also models production, where the commit being
+            # cloned sits at a tag whose date does not move.
+            # (No apostrophes in here: this whole block is inside a
+            # single-quoted sh -c argument.)
+            GIT_AUTHOR_DATE="@1700000000 +0000" \
+            GIT_COMMITTER_DATE="@1700000000 +0000" \
             git -c user.name=fixture -c user.email=fixture@example.net \
                 commit -qm "fixture upstream"
             git tag v0.0.1
