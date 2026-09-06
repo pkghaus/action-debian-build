@@ -1,0 +1,114 @@
+name: Release
+
+# A GitHub Release per version tag, from the CHANGELOG section of the same
+# version. It exists because the manual step drifted: v1.0.0 through v1.2.0
+# were published by hand, and v1.3.0 through v1.7.0 were tagged and documented
+# but never released - seven versions where the tag, the changelog entry and
+# the Marketplace listing disagreed about what the newest version was.
+#
+# The changelog is the source of the notes rather than the commit log. It is
+# already written per release, already reviewed, and already the thing a reader
+# is pointed at; generating notes from commits would produce a second, worse
+# description of the same change.
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+  # For a tag that already exists. A missed release cannot be repaired by
+  # re-pushing its tag: this project's policy is that exact tags never move,
+  # and moving one would change what `@v1.3.0` resolves to for anyone pinned
+  # there. The dispatch republishes the notes without touching the tag, and it
+  # is how the seven releases missing on 2026-09-06 were backfilled.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to publish a release for (e.g. v1.3.0)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # The dispatch names a tag, and its changelog section has to be read
+          # from a tree that HAS that section -- master, not the tag, because a
+          # tag predating a later correction to its own notes should still
+          # publish the corrected text.
+          ref: master
+          persist-credentials: false
+
+      - name: Resolve the tag
+        id: tag
+        env:
+          DISPATCH_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          tag="${DISPATCH_TAG:-$REF_NAME}"
+          case "$tag" in
+              v[0-9]*.[0-9]*.[0-9]*) ;;
+              *) echo "FATAL: '$tag' is not a vX.Y.Z tag" >&2; exit 1 ;;
+          esac
+          # A dispatch can name anything, so confirm the tag exists before
+          # publishing a release that would otherwise create it.
+          git rev-parse -q --verify "refs/tags/$tag" >/dev/null 2>&1 || {
+              git fetch -q --depth 1 origin "refs/tags/$tag:refs/tags/$tag" || {
+                  echo "FATAL: tag $tag does not exist" >&2; exit 1
+              }
+          }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Extract this version's changelog section
+        id: notes
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+
+          # The section runs from its own heading to the next one. Anchored on
+          # the exact version so 1.3.0 cannot match 1.3.0-rc or 11.3.0.
+          notes="$(awk -v v="$version" '
+              $0 == "## [" v "]" || index($0, "## [" v "] -") == 1 { f = 1; next }
+              f && /^## \[/ { exit }
+              f { print }
+          ' CHANGELOG.md)"
+
+          # An empty section means the tag is ahead of the changelog, which is
+          # a mistake worth stopping for: a release with no notes is exactly
+          # what this workflow exists to prevent.
+          if [ -z "$(printf '%s' "$notes" | tr -d '[:space:]')" ]; then
+              echo "FATAL: CHANGELOG.md has no section for $version" >&2
+              exit 1
+          fi
+
+          {
+              echo 'body<<__NOTES__'
+              printf '%s\n' "$notes"
+              echo '__NOTES__'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          BODY: ${{ steps.notes.outputs.body }}
+        run: |
+          set -euo pipefail
+          # Idempotent: re-running a tag updates its release rather than
+          # failing, so a backfill and a fresh tag take the same path.
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              printf '%s' "$BODY" | gh release edit "$TAG" \
+                  --repo "$GITHUB_REPOSITORY" --notes-file -
+              echo "updated release $TAG"
+          else
+              printf '%s' "$BODY" | gh release create "$TAG" \
+                  --repo "$GITHUB_REPOSITORY" --title "$TAG" --notes-file -
+              echo "created release $TAG"
+          fi
