@@ -130,6 +130,35 @@ runs:
         # test marked isolation-container therefore SKIPs on every backend
         # reachable from inside a container. debian:$SUITE carries no init, so
         # build a testbed with the smallest one autopkgtest accepts.
+        # Pull the base image before anything needs it, with a retry, because
+        # Docker Hub is the one third-party host a build leg still reaches
+        # without one. entrypoint.sh already wraps the upstream clone and the
+        # rustup bootstrap; this is the same exposure on up to 54 legs of a
+        # fleet-wide wave, against a host with a documented rate limit.
+        #
+        # Observed 2026-09-06: registry-1.docker.io answered 502 Bad Gateway for
+        # the debian:testing manifest on one leg of the i3status-rust ingest.
+        # The other five legs passed, and a single failed leg skips the publish
+        # job -- so a transient 502 on a base-image pull cost the whole publish
+        # and needed a human to press re-run.
+        #
+        # Pulling here rather than retrying `docker build` covers both users of
+        # the image: neither the build below nor the `docker run` in the
+        # extra-debs branch reaches the registry once it is in the local store.
+        # Backoff matches retry() in entrypoint.sh: 5 attempts, 2s doubling.
+        attempt=1
+        delay=2
+        until docker pull -q "debian:${SUITE}"; do
+            if [ "${attempt}" -ge 5 ]; then
+                echo "FATAL: pulling debian:${SUITE} failed after 5 attempts" >&2
+                exit 1
+            fi
+            echo "::warning::pulling debian:${SUITE} attempt ${attempt}/5 failed; retrying in ${delay}s"
+            sleep "${delay}"
+            attempt=$((attempt + 1))
+            delay=$((delay * 2))
+        done
+
         testbed="$(mktemp -d)"
         {
             echo "FROM debian:${SUITE}"
