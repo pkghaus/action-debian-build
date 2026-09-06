@@ -8,6 +8,20 @@ Consumers pin the floating major (`@v1`), which always points at the newest
 `package.conf` keys, artifact names — is a breaking change and gets a new
 major. Exact tags never move.
 
+## [1.8.0] - 2026-09-06
+
+### Fixed
+
+- The orig tarball is stamped with upstream's commit date instead of the
+  changelog's. Every Debian revision of one upstream version used to produce
+  different bytes under a key that holds one tarball per upstream version, so
+  only a package's newest revision could be verified: every superseded `.dsc`
+  named a checksum that existed nowhere.
+- The Docker Hub pull for the DEP-8 testbed is retried on the same budget as
+  the upstream clone and the rustup installer. A 502 from the registry failed
+  one build leg, and one failed leg skips the publish, so a transient registry
+  error stopped a released package reaching the archive.
+
 ## [1.7.0] - 2026-09-04
 
 ### Added
