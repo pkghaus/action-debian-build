@@ -274,6 +274,7 @@ get_sources() {
             -cf - . | tar -C "$SOURCE_DIR" -xf -
         cd "$SOURCE_DIR"
         UPSTREAM_COMMIT=""
+        UPSTREAM_EPOCH=""
         printf 'upstream: none (native); source taken from %s\n' "$TARGET" >&2
         return 0
     fi
@@ -302,7 +303,24 @@ get_sources() {
     # has no equivalent: DEP-12 records a Repository URL with no revision, and
     # Vcs-* in debian/control describes the packaging repository, not upstream.
     UPSTREAM_COMMIT="$(git rev-parse HEAD)"
-    printf 'upstream: %s %s -> %s\n' "$UPSTREAM" "$VERSION" "$UPSTREAM_COMMIT" >&2
+
+    # And its date, which is what the orig tarball's mtimes come from. Captured
+    # here because it is the last moment .git exists.
+    #
+    # It used to use SOURCE_DATE_EPOCH, which comes from OUR changelog, so every
+    # Debian revision of one upstream version restamped every file and produced
+    # a different tarball -- while the publisher stores one orig tarball per
+    # upstream version and overwrites it. The effect was that only a package's
+    # NEWEST revision was verifiable: every superseded .dsc named a checksum
+    # that no longer existed anywhere. Measured 2026-09-06 on lychee 0.24.2,
+    # where -3 matched the published tarball and -2 did not.
+    #
+    # An orig tarball should be a function of upstream's content and nothing
+    # else. The commit date is upstream's own and does not move when we cut a
+    # new revision.
+    UPSTREAM_EPOCH="$(git log -1 --format=%ct)"
+    printf 'upstream: %s %s -> %s (committed @%s)\n' \
+        "$UPSTREAM" "$VERSION" "$UPSTREAM_COMMIT" "$UPSTREAM_EPOCH" >&2
 
     # The commit is the only thing the build needs from git, and it is captured
     # above. What remains is a build tree that does not match the one a rebuild
@@ -444,7 +462,14 @@ make_orig_tarball() {
     # gzip stores an mtime for the file it compresses, but reads a pipe here and
     # so records none. That is what keeps -z deterministic; do not replace this
     # with a two-step tar-then-gzip on a real file.
-    tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" \
+    #
+    # The mtime is upstream's commit date, NOT SOURCE_DATE_EPOCH: the latter
+    # comes from our changelog and so changes with every Debian revision, which
+    # made one upstream version produce several different orig tarballs. See
+    # the capture site in get_sources. The fallback keeps a native or
+    # commit-less build working, where there is no revision churn to cause the
+    # problem in the first place.
+    tar --sort=name --mtime="@${UPSTREAM_EPOCH:-$SOURCE_DATE_EPOCH}" \
         --owner=0 --group=0 --numeric-owner \
         --exclude=./debian --exclude=./.git \
         -czf "$tarball" .
