@@ -17,6 +17,10 @@
 # the shipped code. Only the validation is exercised: everything after it
 # installs packages and builds a testbed, which belongs to a real run.
 #
+# That last sentence was aspirational until 2026-09-07. Nothing stopped the
+# step, so it ran on past validation every time and fetched a real package from
+# the real archive. It is enforced now -- see run_step.
+#
 # This suite needs no builder image.
 
 set -euo pipefail
@@ -42,20 +46,43 @@ PY
 
 # Runs the step against a throwaway workspace holding one package.conf.
 # Returns the step's output; status lands in STEP_STATUS.
+#
+# OFFLINE, and that is load-bearing rather than tidiness. Past validation the
+# step installs autopkgtest, builds a testbed and fetches DEP8_EXTRA_DEBS from
+# the LIVE archive -- and a valid value here is `i3lock-color`, a package
+# apt.pkg.haus actually serves. It really did: on 2026-09-06, eight CI runs of
+# this repository fetched it six times each, 48 downloads that carried
+# i3lock-color from third to first place in the archive's published
+# statistics. A unit test for a `case` pattern was the single largest source of
+# traffic the archive recorded that day.
+#
+# `sudo` is the first command after validation and the step runs under `set -e`,
+# so a failing stub stops it exactly at the edge of the branch this suite owns.
+# `docker` is stubbed too, and its invocation recorded, so that a later
+# reordering cannot quietly restore the fetch without failing a test.
 run_step() {
     local conf_line="$1"
-    local ws
+    local ws bin
     ws="$(mktemp -d)"
+    bin="$(mktemp -d)"
+    STEP_DOCKER_LOG="$bin/docker-calls"
+    : > "$STEP_DOCKER_LOG"
+    printf '#!/bin/sh\necho "tests: sudo is blocked" >&2\nexit 1\n' > "$bin/sudo"
+    printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s"\nexit 1\n' "$STEP_DOCKER_LOG" \
+        > "$bin/docker"
+    chmod 0755 "$bin/sudo" "$bin/docker"
+
     mkdir -p "$ws/debian/tests"
     : > "$ws/debian/tests/control"
     printf 'UPSTREAM=https://example.invalid/x.git\nVERSION=v1\n%s\n' "$conf_line" \
         > "$ws/package.conf"
     set +e
-    STEP_OUTPUT="$(GITHUB_WORKSPACE="$ws" WORKING_DIRECTORY=. SUITE=trixie DEP8=on \
-        timeout 60 bash "$step" 2>&1)"
+    STEP_OUTPUT="$(PATH="$bin:$PATH" GITHUB_WORKSPACE="$ws" WORKING_DIRECTORY=. \
+        SUITE=trixie DEP8=on timeout 60 bash "$step" 2>&1)"
     STEP_STATUS=$?
     set -e
-    rm -rf "$ws"
+    STEP_DOCKER_CALLS="$(wc -l < "$STEP_DOCKER_LOG" | tr -d ' ')"
+    rm -rf "$ws" "$bin"
 }
 
 # --- values that must be rejected --------------------------------------------
@@ -83,6 +110,14 @@ for good in 'DEP8_EXTRA_DEBS=i3lock-color' 'DEP8_EXTRA_DEBS=libfoo1 bar-baz+x.y'
         report fail "accepted: $good" "wrongly rejected"
     else
         report pass "accepted: $good"
+    fi
+    # The regression assertion. Reaching docker means reaching the fetch, and
+    # the fetch means the live archive.
+    if [ "${STEP_DOCKER_CALLS:-0}" -eq 0 ]; then
+        report pass "  and stopped before touching the network"
+    else
+        report fail "  and stopped before touching the network" \
+            "docker invoked ${STEP_DOCKER_CALLS}x: $(head -1 "$STEP_DOCKER_LOG" 2>/dev/null)"
     fi
 done
 
