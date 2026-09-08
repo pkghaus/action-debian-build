@@ -121,4 +121,4 @@ for good in 'DEP8_EXTRA_DEBS=i3lock-color' 'DEP8_EXTRA_DEBS=libfoo1 bar-baz+x.y'
     fi
 done
 
-summary
+summary 12

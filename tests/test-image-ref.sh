@@ -97,4 +97,4 @@ case "$STEP_OUTPUT" in
     *) report fail "logs the digest it resolved" "output=[$STEP_OUTPUT]" ;;
 esac
 
-summary
+summary 4

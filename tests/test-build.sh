@@ -212,4 +212,4 @@ fi
 
 rm -rf "$work"
 
-summary
+summary 18

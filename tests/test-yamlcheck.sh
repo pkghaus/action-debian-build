@@ -36,4 +36,4 @@ else
     report fail "a valid file is accepted"
 fi
 
-summary
+summary 3
