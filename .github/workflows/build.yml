@@ -11,11 +11,9 @@ name: Build Debian packages
 #
 # The build step calls this repository's own action. `uses: ./` would not work
 # here, because inside a reusable workflow it resolves against the *caller's*
-# checkout, so the reference is by tag. That was rejected once, when no tag
-# existed yet and the step was six lines of `docker run`; v1 has existed since
-# 2026-08-15 and the step now also runs DEP-8, so duplicating it would mean
-# maintaining the same logic in two places and leaving our own published action
-# with no consumer inside the org.
+# checkout, so the reference is by tag. Inlining the equivalent `docker run`
+# instead would duplicate logic that also runs DEP-8, and leave our own
+# published action with no consumer inside the org.
 #
 # Actions are pinned to commit SHAs: a full-length SHA is the only immutable
 # reference GitHub offers, and a tag can be moved by anyone who compromises the
@@ -73,9 +71,9 @@ concurrency:
   # working_directory is in the key because it is what makes two legs of one
   # matrix different. Without it every package in a multi-package run shares a
   # group, and cancel-in-progress means each cancels the one before: a pull
-  # request touching 25 packages verified exactly one of them, green, with the
-  # other 24 reading "cancelled" where nobody looks. Invisible until the first
-  # such pull request, because every earlier one touched a single package.
+  # request touching 25 packages then verifies exactly one of them, green, with
+  # the other 24 reading "cancelled" where nobody looks. A single-package pull
+  # request never shows it.
   group: build-${{ github.repository }}-${{ github.ref }}-${{ inputs.working_directory }}
   cancel-in-progress: true
 

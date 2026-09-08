@@ -4,11 +4,10 @@
 # to clone: everything the package is made of already sits in the packaging
 # directory, so UPSTREAM and VERSION describe nothing and must not be set.
 #
-# This exists because the archive keyring was built from a separate repository
-# that was archived when the fleet became one repo. Builds kept working, because
-# a read-only tag clone is permitted on an archived repository, so nothing went
-# red -- but the key material could no longer be changed, and the first person
-# to find out would have been whoever was rotating a signing key.
+# A native package's source is its own directory, with no upstream repository to
+# clone. Getting that wrong is silent: an archived repository still permits a
+# read-only tag clone, so builds stay green while the key material becomes
+# unchangeable, and the first to find out is whoever rotates a signing key.
 #
 # Usage: tests/test-native.sh <builder-image>
 
@@ -39,7 +38,7 @@ else
 fi
 
 # Build-Path, and the tarball's root, come from the changelog's source name
-# rather than a repository basename that no longer exists.
+# rather than a repository basename.
 if grep -q '^Build-Path: /build/deb-build-fixture$' "$work"/debs/*.buildinfo; then
     report pass "the source tree is named after the package, not a repository"
 else

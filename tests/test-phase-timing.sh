@@ -2,9 +2,9 @@
 #
 # Covers the per-phase timing main() prints.
 #
-# It exists because 88% of this pipeline's runner time is inside entrypoint.sh
-# and was, until now, a single number per build leg. The value is entirely in
-# the output, so the output is what is asserted -- including the part that only
+# It exists because 88% of this pipeline's runner time is inside entrypoint.sh,
+# and a single number per leg cannot say where. The value is entirely in the
+# output, so the output is what is asserted -- including the part that only
 # matters on a bad day: a build that dies partway through still has to report
 # the phases that finished, and must not claim a duration for the one that did
 # not.
