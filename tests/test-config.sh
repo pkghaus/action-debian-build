@@ -112,4 +112,4 @@ fi
 
 rm -rf "$work"
 
-summary
+summary 7

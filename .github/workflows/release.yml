@@ -17,8 +17,8 @@ on:
   # For a tag that already exists. A missed release cannot be repaired by
   # re-pushing its tag: this project's policy is that exact tags never move,
   # and moving one would change what `@v1.3.0` resolves to for anyone pinned
-  # there. The dispatch republishes the notes without touching the tag, and it
-  # is how the seven releases missing on 2026-09-06 were backfilled.
+  # there. The dispatch republishes the notes without touching the tag, which
+  # is how a missing release is backfilled.
   workflow_dispatch:
     inputs:
       tag:

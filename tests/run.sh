@@ -20,6 +20,17 @@ fi
 
 status=0
 
+# The per-file guard in summary() catches a file whose assertions stop running.
+# It cannot catch a file that stops being run at all, because a deleted or
+# renamed test simply drops out of the glob below and the suite still passes.
+EXPECTED_SUITES=10
+found=$(printf '%s\n' "$here"/test-*.sh | wc -l)
+if [ "$found" -ne "$EXPECTED_SUITES" ]; then
+    echo "FAIL: $found test files, expected $EXPECTED_SUITES." >&2
+    echo "      A suite was added or removed; update EXPECTED_SUITES." >&2
+    exit 1
+fi
+
 for test in "$here"/test-*.sh; do
     echo
     echo "==> $(basename "$test")"

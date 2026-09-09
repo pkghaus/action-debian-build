@@ -136,11 +136,10 @@ runs:
         # rustup bootstrap; this is the same exposure on up to 54 legs of a
         # fleet-wide wave, against a host with a documented rate limit.
         #
-        # Observed 2026-09-06: registry-1.docker.io answered 502 Bad Gateway for
-        # the debian:testing manifest on one leg of the i3status-rust ingest.
-        # The other five legs passed, and a single failed leg skips the publish
-        # job -- so a transient 502 on a base-image pull cost the whole publish
-        # and needed a human to press re-run.
+        # Observed: registry-1.docker.io answering 502 Bad Gateway for the
+        # debian:testing manifest on one leg of a six-leg ingest. A single
+        # failed leg skips the publish job, so a transient 502 on a base-image
+        # pull costs the whole publish and needs a human to press re-run.
         #
         # Pulling here rather than retrying `docker build` covers both users of
         # the image: neither the build below nor the `docker run` in the

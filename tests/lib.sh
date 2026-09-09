@@ -23,8 +23,23 @@ report() {
     fi
 }
 
-summary() {
+# The count is the argument, and it is what separates "everything passed" from
+# "nothing ran". A file whose assertions stop being reached -- an early return,
+# a renamed helper, a fixture that stops being built -- otherwise reports zero
+# failures and exits 0.
+summary() { # expected-assertions
+    local expected="${1:?summary needs the number of assertions this file runs}"
+    local ran=$((pass_count + fail_count))
+
     printf '\n%s passed, %s failed\n' "$pass_count" "$fail_count"
+
+    if [ "$ran" -ne "$expected" ]; then
+        printf 'FAIL  %s assertions ran, expected %s. One was skipped, not\n' \
+            "$ran" "$expected" >&2
+        printf '      failed. Update the number here if the change was meant.\n' >&2
+        return 1
+    fi
+
     [ "$fail_count" -eq 0 ]
 }
 

@@ -17,9 +17,9 @@
 # the shipped code. Only the validation is exercised: everything after it
 # installs packages and builds a testbed, which belongs to a real run.
 #
-# That last sentence was aspirational until 2026-09-07. Nothing stopped the
-# step, so it ran on past validation every time and fetched a real package from
-# the real archive. It is enforced now -- see run_step.
+# Enforced, not assumed -- see run_step. Nothing in the step itself stops after
+# validation, so unguarded it runs on and fetches a real package from the real
+# archive.
 #
 # This suite needs no builder image.
 
@@ -50,11 +50,10 @@ PY
 # OFFLINE, and that is load-bearing rather than tidiness. Past validation the
 # step installs autopkgtest, builds a testbed and fetches DEP8_EXTRA_DEBS from
 # the LIVE archive -- and a valid value here is `i3lock-color`, a package
-# apt.pkg.haus actually serves. It really did: on 2026-09-06, eight CI runs of
-# this repository fetched it six times each, 48 downloads that carried
-# i3lock-color from third to first place in the archive's published
-# statistics. A unit test for a `case` pattern was the single largest source of
-# traffic the archive recorded that day.
+# apt.pkg.haus actually serves. Unguarded, eight CI runs fetching it six times
+# each put 48 downloads into the archive's published statistics and carried
+# i3lock-color to the top of them: a unit test for a `case` pattern outweighing
+# every real user that day.
 #
 # `sudo` is the first command after validation and the step runs under `set -e`,
 # so a failing stub stops it exactly at the edge of the branch this suite owns.
@@ -121,4 +120,4 @@ for good in 'DEP8_EXTRA_DEBS=i3lock-color' 'DEP8_EXTRA_DEBS=libfoo1 bar-baz+x.y'
     fi
 done
 
-summary
+summary 12

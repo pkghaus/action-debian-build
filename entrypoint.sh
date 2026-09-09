@@ -19,9 +19,9 @@ shopt -s inherit_errexit
 TARGET="${TARGET:-$(pwd)}"
 CLONE_ATTEMPTS="${CLONE_ATTEMPTS:-5}"
 
-# Run a command until it succeeds, with the attempt budget and doubling
-# backoff the clone has always had. Every network fetch in this file gets the
-# same treatment: the clone retries because GitHub cancels HTTP/2 streams when
+# Run a command until it succeeds, on the attempt budget and doubling backoff
+# above. Every network fetch in this file gets the same treatment: the clone
+# retries because GitHub cancels HTTP/2 streams when
 # several builds clone at once, and the rustup bootstrap has the same exposure
 # to a third-party host on up to 54 build legs in a fleet-wide wave.
 #
@@ -62,8 +62,7 @@ load_config() {
     }
 
     # Captured before sourcing so an explicit VERSION from the environment wins
-    # over the pinned one. This is the only override the old build.sh -v offered
-    # and the only one anything uses.
+    # over the pinned one. The only override anything uses.
     version_override="${VERSION:-}"
 
     # shellcheck source=/dev/null
@@ -113,9 +112,9 @@ load_config() {
     SETUP_HOOK="${SETUP_HOOK:-}"
 
     # With no UPSTREAM to take a basename from, the changelog's source name is
-    # the authority -- and it is the better name anyway: the old derivation gave
-    # the keyring a source tree called archive-keyring/, after the repository
-    # rather than after the package.
+    # the authority, and it is the better name anyway: deriving from the
+    # repository gives the keyring a source tree called archive-keyring/, named
+    # after the repo rather than the package.
     if [ -n "${UPSTREAM:-}" ]; then
         SOURCE_DIR="${SOURCE_DIR:-$(basename "${UPSTREAM%.git}")}"
     else
@@ -131,10 +130,10 @@ load_config() {
     esac
 
     # Normalised to 0/1 here so the check below stays a comparison against one
-    # value. It used to be that comparison alone, which made every spelling
-    # except a literal 1 mean off: DBGSYM=on, =yes and =true each disabled the
-    # package they were written to enable, with no error and nothing in the log.
-    # Words are accepted because the neighbouring knob takes them.
+    # value. Without it every spelling but a literal 1 means off, so DBGSYM=on,
+    # =yes and =true each disable the package they were written to enable, with
+    # no error and nothing in the log. Words are accepted because the
+    # neighbouring knob takes them.
     case "$DBGSYM" in
         0 | off) DBGSYM=0 ;;
         1 | on)  DBGSYM=1 ;;
@@ -307,13 +306,13 @@ get_sources() {
     # And its date, which is what the orig tarball's mtimes come from. Captured
     # here because it is the last moment .git exists.
     #
-    # It used to use SOURCE_DATE_EPOCH, which comes from OUR changelog, so every
-    # Debian revision of one upstream version restamped every file and produced
-    # a different tarball -- while the publisher stores one orig tarball per
-    # upstream version and overwrites it. The effect was that only a package's
-    # NEWEST revision was verifiable: every superseded .dsc named a checksum
-    # that no longer existed anywhere. Measured 2026-09-06 on lychee 0.24.2,
-    # where -3 matched the published tarball and -2 did not.
+    # NOT SOURCE_DATE_EPOCH, which comes from OUR changelog: that restamps every
+    # file on each Debian revision of one upstream version, producing a
+    # different tarball, while the publisher stores one orig tarball per
+    # upstream version and overwrites it. Only a package's NEWEST revision then
+    # verifies, and every superseded .dsc names a checksum that exists nowhere
+    # -- measured on lychee 0.24.2, where -3 matched the published tarball and
+    # -2 did not.
     #
     # An orig tarball should be a function of upstream's content and nothing
     # else. The commit date is upstream's own and does not move when we cut a
@@ -695,10 +694,9 @@ check() {
     esac
 }
 
-# 88% of this pipeline's runner time is inside this script, and until now it was
-# one number per leg: 170 seconds for croc, 600 for zola, with no way to tell an
-# image pull from a dependency install from a compile. Every optimisation past
-# that was guesswork.
+# 88% of this pipeline's runner time is inside this script. One number per leg
+# -- 170 seconds for croc, 600 for zola -- cannot tell an image pull from a
+# dependency install from a compile, which makes every optimisation guesswork.
 #
 # Each phase is still called directly by main below, rather than through a
 # wrapper taking the function name. A wrapper reads better and cost a green

@@ -70,11 +70,10 @@ rm -rf "$work"
 
 # --- the two fields debrebuild needs, on a package that has an upstream -----
 # A fresh quilt workdir rather than the native one above: both fields below are
-# about the upstream path, and a native package has none. They used to share a
-# workdir because the native case was a quilt fixture with its format flipped,
-# so UPSTREAM was still set and Build-Path still read /build/upstream. Once a
-# native package stopped cloning anything, that coupling made two assertions
-# about upstreams run against a package without one.
+# about the upstream path, and a native package has none. Sharing the workdir
+# only appears to work while the native case is a quilt fixture with its format
+# flipped -- UPSTREAM still set, Build-Path still /build/upstream -- which runs
+# two assertions about upstreams against a package that has none.
 work="$(make_workdir "$IMAGE")"
 run_build "$IMAGE" "$work"
 buildinfo="$(find "$work/debs" -name '*.buildinfo' -print -quit)"
@@ -252,4 +251,4 @@ else
 fi
 rm -rf "$work"
 
-summary
+summary 17
