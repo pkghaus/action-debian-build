@@ -13,6 +13,75 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Which jobs are worth running for this change. The six container builds are
+  # 337-405s each and about 40 minutes of runner time between them; a CHANGELOG
+  # edit cannot affect them. Roughly a quarter of commits here touch nothing but
+  # markdown.
+  #
+  # A job-level `if` rather than `paths-ignore` on the workflow: paths-ignore
+  # skips the whole run, producing no check at all, which leaves a required
+  # status check pending forever if one is ever added. A skipped job reports a
+  # conclusion and satisfies it. Plain git rather than a paths-filter action,
+  # because every `uses:` here is first-party and one small diff is not worth
+  # changing that.
+  changes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.classify.outputs.code }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Classify the change
+        id: classify
+        # Every branch that cannot answer confidently answers "code", so an
+        # unexpected event shape runs the full suite rather than skipping it.
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.sha }}
+        run: |
+          set -eu
+
+          run_everything() {
+              echo "$1; running everything"
+              echo "code=true" >> "$GITHUB_OUTPUT"
+              exit 0
+          }
+
+          # A new branch, a force push or a first push reports an all-zero base.
+          case "${BASE:-}" in
+              ''|0000000000000000000000000000000000000000)
+                  run_everything "no usable base commit" ;;
+          esac
+          git cat-file -e "$BASE^{commit}" 2>/dev/null \
+              || run_everything "base $BASE is not in this clone"
+
+          changed="$(git diff --name-only "$BASE" "$HEAD")"
+          [ -n "$changed" ] || run_everything "no files changed"
+
+          echo "changed:"
+          printf '%s\n' "$changed" | sed 's/^/  /'
+
+          # Counted, not `grep -q`. With -q grep exits on its first match and
+          # the upstream printf takes SIGPIPE; under pipefail that makes the
+          # pipeline fail and a code change read as documentation. It depends
+          # on whether printf finished writing first, so it is a race, and the
+          # wrong answer is the dangerous one: tests skipped on a real change.
+          total=$(printf '%s\n' "$changed" | grep -c '')
+          docs=$(printf '%s\n' "$changed" | grep -cE '\.md$|^LICENSE$' || true)
+
+          if [ "$total" -eq "$docs" ]; then
+              echo "documentation only: $docs of $total files"
+              echo "code=false" >> "$GITHUB_OUTPUT"
+          else
+              echo "touches code: $((total - docs)) of $total files"
+              echo "code=true" >> "$GITHUB_OUTPUT"
+          fi
+
   lint:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -67,6 +136,8 @@ jobs:
 
   test:
     name: test / ${{ matrix.suite }} / ${{ matrix.target.arch }}
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.target.runner }}
     timeout-minutes: 30
     strategy:
@@ -98,6 +169,8 @@ jobs:
 
   action:
     name: action / ${{ matrix.suite }}
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
