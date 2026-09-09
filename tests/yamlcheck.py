@@ -1,17 +1,22 @@
 #!/usr/bin/env python3
-"""Reject YAML that GitHub rejects but PyYAML happily accepts.
+"""Parse YAML with a loader that rejects duplicate mapping keys.
 
-``yaml.safe_load`` keeps the last of a set of duplicate mapping keys and reports
-success. GitHub's workflow parser fails the run at parse time instead, before
-any job is created, so "it parses locally" proves nothing about whether GitHub
-will accept the file unless the loader rejects duplicates too.
+PyYAML's safe_load keeps the last of a repeated key and reports success.
+GitHub's workflow parser refuses the file outright, before any job is created,
+so a local safe_load check is not evidence that a workflow will run at all.
 
-Usage: yamlcheck.py <file> [<file> ...]
+One file, copied verbatim into pkghaus/action-debian-build, pkghaus/buildinfos
+and pkghaus/infrastructure. There is no public home the estate's repos can
+share code through; it is small and stable enough for a copy to be the cheaper
+trade. Its tests live in pkghaus/action-debian-build
+(tests/test-yamlcheck.sh); change it there and copy the file to the other two.
 """
 
 import sys
 
 import yaml
+
+USAGE = "Usage: yamlcheck.py <file> [<file> ...]"
 
 
 class StrictLoader(yaml.SafeLoader):
@@ -24,6 +29,8 @@ def _reject_duplicate_keys(loader, node, deep=False):
     for key_node, value_node in node.value:
         key = loader.construct_object(key_node, deep=deep)
 
+        # ConstructorError rather than ValueError: it carries the mark, so the
+        # failure names the line instead of only the key.
         if key in mapping:
             raise yaml.constructor.ConstructorError(
                 None,
@@ -44,8 +51,10 @@ StrictLoader.add_constructor(
 
 
 def main(paths):
+    # Checking nothing is not passing. A glob that matches no file would
+    # otherwise report success having read nothing.
     if not paths:
-        print(__doc__.strip().splitlines()[-1], file=sys.stderr)
+        print(USAGE, file=sys.stderr)
         return 2
 
     failed = False

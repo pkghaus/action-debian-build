@@ -36,4 +36,11 @@ else
     report fail "a valid file is accepted"
 fi
 
-summary 3
+# A glob matching no file must not report success having read nothing.
+if python3 "$repo/tests/yamlcheck.py" >/dev/null 2>&1; then
+    report fail "checking no files is not a pass" "it exited 0"
+else
+    report pass "checking no files is not a pass"
+fi
+
+summary 4
