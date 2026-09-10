@@ -34,7 +34,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           # The dispatch names a tag, and its changelog section has to be read
           # from a tree that HAS that section -- master, not the tag, because a
