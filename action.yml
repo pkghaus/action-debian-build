@@ -187,6 +187,16 @@ runs:
                     https://apt.pkg.haus/pkghaus-archive-keyring.gpg
                 echo 'deb [signed-by=/usr/share/keyrings/pkghaus-archive-keyring.gpg] https://apt.pkg.haus ${SUITE} main' \
                     > /etc/apt/sources.list.d/pkghaus.list
+                # Marks these fetches as the pipeline's own so the archive
+                # Worker does not count them as downloads. This runs on all six
+                # legs of every release of the package that needs them, and
+                # without the marker i3lock-color climbs the published
+                # statistics on our own CI rather than on anybody's use of it.
+                # The Worker matches the marker as a substring, which is why it
+                # is appended to apt's own product token rather than replacing
+                # it.
+                printf 'Acquire::http::User-Agent \"Debian APT-HTTP/1.3 pkghaus-ci\";\n' \
+                    > /etc/apt/apt.conf.d/99pkghaus-ci
                 apt-get update -qq
                 cd /out && apt-get download ${extra_debs}
             "
