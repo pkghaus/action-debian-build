@@ -22,6 +22,7 @@ with `lintian` and collecting artifacts all live here and are shared.
 | `IMAGE` | `ghcr.io/pkghaus/deb-builder` | Builder image, without the suite tag. |
 | `WORKING_DIRECTORY` | `.` | Directory holding `debian/` and `package.conf`, relative to the workspace. |
 | `DEP8` | `on` | `off` skips the package's DEP-8 tests. Any other value is an error. |
+| `SOURCE_SIGNING_KEY` | none | Armored OpenPGP secret key whose signing subkey signs the `.dsc`. Pass a secret. With none the source package is unsigned. |
 
 Packages land in `debs/` inside that directory, alongside the source package
 they were built from and two records of how: the `.buildinfo` dpkg emits, and a
@@ -149,6 +150,35 @@ rather than leaving the field blank, which would read as a lookup that failed.
 The package name appears nowhere in this configuration: artifacts are named from
 what `dpkg` itself emits, so there is nothing to keep in sync with
 `debian/changelog`.
+
+### Signing the source package
+
+`SOURCE_SIGNING_KEY` makes `dpkg-buildpackage` clearsign the `.dsc` it produces.
+Leave it unset and the source package is unsigned, which is what every build did
+before the input existed.
+
+Three things are worth knowing before wiring it up.
+
+**Give it the key that signs source packages, never the one that signs your
+archive's `Release` files.** `apt` accepts any signing-capable key in the keyring
+a `Signed-By` line names, so if the two are the same key, or ship in the same
+keyring, a leak of this one forges your archive. This input is handed to every
+build leg of every package, which is a much wider surface than a publish job.
+
+**Signing happens inside `dpkg-buildpackage`, not after it.** The `.buildinfo`
+records a checksum of the `.dsc`, and dpkg recomputes it once the file is
+signed. A signature applied afterwards would leave every build record naming a
+file that no longer matches.
+
+**The signature's clock is pinned**, to the changelog date, or to the key's
+creation when that is later. An OpenPGP signature carries its creation time, so
+without this each leg of a multi-suite build signs different bytes; with it, and
+an Ed25519 key, every leg produces the same `.dsc`. The clamp is not cosmetic:
+gpg refuses outright to sign with a key the clock says does not exist yet, and
+a tag rebuilt later than it was cut hits that on the normal path.
+
+The key must be passphrase-less. A protected one fails the build with
+`No secret key` rather than hanging.
 
 ### Toolchains
 

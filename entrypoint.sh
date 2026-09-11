@@ -516,6 +516,90 @@ resolved_toolchains() {
     fi
 }
 
+# Sets SIGN_KEY_FPR (and SIGN_GNUPGHOME) when a source-signing key is supplied,
+# so dpkg-buildpackage signs the .dsc it produces. With no key the build stays
+# unsigned and nothing here runs.
+#
+# Two things decide the shape of this.
+#
+# The keyring is created OUTSIDE the package directory. A native package's
+# source tarball is that directory, so a keyring inside it would be shipped in
+# the published .dsc with the private half in it.
+#
+# The clock is pinned, because an OpenPGP signature carries its creation time
+# and six legs build the same source package. Left to the wall clock each leg
+# signs a different .dsc; the artifact merge keeps one, and the five .buildinfo
+# records naming the others describe a file nobody can fetch. Ed25519 is
+# deterministic, so with the time fixed the six agree byte for byte.
+prepare_source_signing() {
+    local colons fpr created sign_epoch
+
+    [ -n "${SOURCE_SIGNING_KEY:-}" ] || return 0
+
+    SIGN_GNUPGHOME="$(mktemp -d)"
+    chmod 0700 "$SIGN_GNUPGHOME"
+
+    if ! printf '%s' "$SOURCE_SIGNING_KEY" \
+        | GNUPGHOME="$SIGN_GNUPGHOME" gpg --batch --quiet --import 2>/dev/null; then
+        echo "FATAL: SOURCE_SIGNING_KEY is set but gpg could not import it." >&2
+        return 1
+    fi
+
+    # The signing SUBKEY, never the primary: the CI export carries the primary
+    # only as a stub, and the whole point of the separate subkey is that this
+    # key cannot sign a Release. Field 12 is the capability list and field 6 the
+    # creation time; the fingerprint is on the fpr: line that follows.
+    colons="$(GNUPGHOME="$SIGN_GNUPGHOME" gpg --batch --with-colons \
+        --list-secret-keys 2>/dev/null)"
+    read -r fpr created <<EOF
+$(printf '%s\n' "$colons" | awk -F: '
+    /^ssb:/ { caps = $12; ts = $6; next }
+    /^fpr:/ && caps != "" { if (caps ~ /s/) { print $10, ts; exit } caps = "" }')
+EOF
+
+    # Fatal rather than a quiet fall back to unsigned. A secret that has expired
+    # or lost its subkey would otherwise publish unsigned source packages for as
+    # long as nobody thought to look at one.
+    if [ -z "$fpr" ]; then
+        echo "FATAL: SOURCE_SIGNING_KEY carries no signing subkey." >&2
+        printf '%s\n' "$colons" >&2
+        return 1
+    fi
+
+    # gpg refuses to sign with a key the clock says does not exist yet:
+    # "clear-sign failed: Time conflict", and dpkg-buildpackage then fails the
+    # build. SOURCE_DATE_EPOCH is the changelog date, and the archive rebuilds a
+    # tag whenever it first needs it, sometimes weeks after the tag was cut, so
+    # a changelog older than the subkey is the ordinary case rather than an
+    # exotic one. Clamping keeps every leg on the same value either way.
+    sign_epoch="$SOURCE_DATE_EPOCH"
+    [ "$created" -gt "$sign_epoch" ] && sign_epoch="$created"
+
+    # The CI export is passphrase-less, so batch and no-tty are enough; a
+    # protected key fails here with "No secret key" rather than hanging on a
+    # pinentry that does not exist. digest-algo is pinned so the signature does
+    # not move with a gpg default.
+    cat > "$SIGN_GNUPGHOME/gpg.conf" <<EOF
+faked-system-time ${sign_epoch}!
+batch
+no-tty
+digest-algo SHA256
+EOF
+
+    SIGN_KEY_FPR="$fpr"
+    export GNUPGHOME="$SIGN_GNUPGHOME"
+
+    # Dropped once it is in the keyring, so it is not in the environment every
+    # upstream build script inherits, nor in anything that dumps `env`. This
+    # narrows the copies; it does not make the key unreadable, because the
+    # keyring GNUPGHOME points at is still there and has to be. A key handed to
+    # a build leg is readable by that build, which is the whole reason this is a
+    # different subkey from the one that signs Release files.
+    unset SOURCE_SIGNING_KEY
+
+    echo "signing the source package with $fpr (clock pinned to $sign_epoch)"
+}
+
 build() {
     # Some upstreams ship a debian/ of their own. Without this, cp would nest
     # ours inside theirs as debian/debian and the build would use theirs.
@@ -591,7 +675,20 @@ build() {
     # dirname() on that field unconditionally: without it the rebuild dies with
     # "fileparse(): need a valid pathname". --no-respect-build-path does not
     # help, it sets the same variable to undef.
-    if ! dpkg-buildpackage --build=full --no-sign \
+    #
+    # Signing is dpkg's own stage rather than a gpg call afterwards, and that is
+    # load-bearing: the .buildinfo records a sha256 OF THE .dsc, and dpkg
+    # recomputes it after signing. Signing the .dsc once the record existed
+    # would leave every published record naming a file that no longer matches.
+    prepare_source_signing || return 1
+    local -a sign_args
+    if [ -n "${SIGN_KEY_FPR:-}" ]; then
+        sign_args=(--sign-key="$SIGN_KEY_FPR")
+    else
+        sign_args=(--no-sign)
+    fi
+
+    if ! dpkg-buildpackage --build=full "${sign_args[@]}" \
         --buildinfo-option=--always-include-path; then
         echo "FATAL: dpkg-buildpackage failed." >&2
         echo "  Does Architecture in debian/control permit $(dpkg --print-architecture)?" >&2
