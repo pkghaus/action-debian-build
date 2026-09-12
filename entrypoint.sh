@@ -531,7 +531,23 @@ resolved_toolchains() {
 # signs a different .dsc; the artifact merge keeps one, and the five .buildinfo
 # records naming the others describe a file nobody can fetch. Ed25519 is
 # deterministic, so with the time fixed the six agree byte for byte.
+# Thin wrapper so tracing is restored on EVERY exit path, including the two
+# fatal ones. This file runs under `set -x`, which expands and prints its
+# arguments: without the suppression below the armored private key lands in the
+# build log in full, twice, once for the emptiness test and once for the import.
+# GitHub masks registered secrets, but a private key must not rest on that, and
+# a local `docker run` has no masking at all.
 prepare_source_signing() {
+    local had_x rc
+    case "$-" in *x*) had_x=1 ;; *) had_x=0 ;; esac
+    set +x
+    _prepare_source_signing
+    rc=$?
+    if [ "$had_x" = 1 ]; then set -x; fi
+    return "$rc"
+}
+
+_prepare_source_signing() {
     local colons fpr created sign_epoch
 
     [ -n "${SOURCE_SIGNING_KEY:-}" ] || return 0

@@ -87,6 +87,20 @@ else
         "$(gpg --no-default-keyring --keyring "$keyhome/public.gpg" --verify "$signed" 2>&1 | tail -2)"
 fi
 
+# entrypoint.sh runs under `set -x`, which expands and prints its arguments. The
+# emptiness test and the import both take the key as an argument, so without
+# suppression the armored private half lands in the build log in full. CI would
+# probably mask it, since GitHub masks registered secrets; a local `docker run`
+# masks nothing, and a private key should not depend on either.
+if grep -q 'BEGIN PGP PRIVATE KEY BLOCK' "$BUILD_LOG"; then
+    report fail "the signing key never reaches the build log" \
+        "armor header found at $(grep -n 'BEGIN PGP PRIVATE KEY BLOCK' "$BUILD_LOG" | head -1 | cut -d: -f1)"
+elif grep -qFf <(awk 'length($0) > 40 && !/^-----/' "$keyhome/secret.asc") "$BUILD_LOG"; then
+    report fail "the signing key never reaches the build log" "a key body line appears in it"
+else
+    report pass "the signing key never reaches the build log"
+fi
+
 # The reason signing happens inside dpkg-buildpackage rather than afterwards:
 # the record names a checksum OF the .dsc, and dpkg recomputes it once the file
 # is signed. Signing after the record was written would leave every published
@@ -162,4 +176,4 @@ else
 fi
 rm -rf "$work"
 
-summary 8
+summary 9
