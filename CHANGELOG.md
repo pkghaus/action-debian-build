@@ -8,6 +8,13 @@ Consumers pin the floating major (`@v1`), which always points at the newest
 `package.conf` keys, artifact names — is a breaking change and gets a new
 major. Exact tags never move.
 
+## [1.9.0] - 2026-09-11
+
+### Added
+
+- `SOURCE_SIGNING_KEY`, an armored OpenPGP secret key whose signing subkey signs
+  the `.dsc`. Omitted, the source package is unsigned as before.
+
 ## [1.8.0] - 2026-09-06
 
 ### Fixed

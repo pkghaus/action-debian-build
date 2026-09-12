@@ -24,6 +24,16 @@ inputs:
       debian/tests/. "on" or "off".
     required: false
     default: "on"
+  SOURCE_SIGNING_KEY:
+    description: >
+      Armored OpenPGP secret key whose signing subkey signs the .dsc this
+      build produces. Optional: with no key the source package is unsigned,
+      which is what it was before this input existed. Pass a secret, never a
+      literal. The key must be passphrase-less and must NOT be the key that
+      signs the archive's Release files, because a keyring holding both would
+      let this one be accepted for either.
+    required: false
+    default: ""
 runs:
   # A composite action rather than the docker action used by action-forge-publish:
   # runs.image takes only static values, so a docker action could neither select
@@ -36,6 +46,7 @@ runs:
         IMAGE: ${{ inputs.IMAGE }}
         SUITE: ${{ inputs.SUITE }}
         WORKING_DIRECTORY: ${{ inputs.WORKING_DIRECTORY }}
+        SOURCE_SIGNING_KEY: ${{ inputs.SOURCE_SIGNING_KEY }}
       run: |
         set -euo pipefail
 
@@ -65,9 +76,15 @@ runs:
             ref="${IMAGE}:${SUITE}"
         fi
 
+        # --env NAME rather than --env NAME=value: the name form takes the
+        # value from this step's environment, so the key never appears in the
+        # container's argv, where any process on the runner could read it.
+        # Empty is the normal case and the entrypoint treats it as "do not
+        # sign", so this is unconditional.
         docker run --rm \
           --volume "${GITHUB_WORKSPACE}/${WORKING_DIRECTORY}:/target" \
           --workdir /target \
+          --env SOURCE_SIGNING_KEY \
           "${ref}"
 
     - name: Run DEP-8 tests

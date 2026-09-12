@@ -21,6 +21,18 @@ ENV DEB_SUITE=${SUITE} \
 #   git              cloning the upstream project
 #   curl             fetching rustup when TOOLCHAIN=rust
 #   ca-certificates  verifying both of the above over TLS
+#   gpg, gpg-agent   signing the .dsc when SOURCE_SIGNING_KEY is supplied
+#
+# gpg arrived transitively before it was used directly, and gpg-agent did not
+# arrive at all. GnuPG 2.x keeps secret keys in the agent, so importing one
+# without it fails with "error getting the KEK: No agent running" -- an error
+# about the agent, from a command that only mentions importing. Both are named
+# here rather than left to another package's dependencies.
+#
+# It costs nothing in the build records: Installed-Build-Depends lists the
+# build-dependency closure, not what the image happens to carry. Measured on a
+# published croc record, which names 142 packages and none of gpg, gnupg,
+# gpgconf, libgcrypt or dirmngr.
 #
 # Package build dependencies are resolved from debian/control at build time by
 # apt-get build-dep, which is why the apt indexes are cleaned here rather than
@@ -34,6 +46,8 @@ RUN apt-get update \
         dpkg-dev \
         fakeroot \
         git \
+        gpg \
+        gpg-agent \
         lintian \
     && rm -rf /var/lib/apt/lists/*
 
