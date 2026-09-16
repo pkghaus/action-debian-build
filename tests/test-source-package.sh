@@ -251,4 +251,49 @@ else
 fi
 rm -rf "$work"
 
-summary 17
+# --- a shallow clone resolves what a full one does ------------------------
+# The suite already asserts the orig tarball is byte-identical across builds,
+# but both of those builds clone the same way, so it cannot see a clone that
+# resolves a DIFFERENT commit or date -- which is exactly what --depth 1 could
+# have broken. The control is a full clone of the same ref, done here.
+work="$(make_workdir "$IMAGE")"
+run_build "$IMAGE" "$work"
+
+# file://, not a plain path: git ignores --depth on a local clone and says so,
+# which would make the shallow assertion below pass for the wrong reason.
+ref="$(mktemp -d)"
+git clone -q --branch v0.0.1 -- "file://$work/upstream" "$ref/full" 2>/dev/null
+full_commit="$(git -C "$ref/full" rev-parse HEAD)"
+full_epoch="$(git -C "$ref/full" log -1 --format=%ct)"
+
+if grep -q 'clone --depth 1' "$BUILD_LOG"; then
+    report pass "the upstream is cloned shallow"
+else
+    report fail "the upstream is cloned shallow" "log: $BUILD_LOG"
+fi
+
+built_commit="$(tar xOf "$(find "$work/debs" -name '*.debian.tar.*' -print -quit)" \
+    debian/upstream-commit 2>/dev/null || true)"
+if [ "$built_commit" = "$full_commit" ]; then
+    report pass "the shallow clone resolves the commit a full clone does"
+else
+    report fail "the shallow clone resolves the commit a full clone does" \
+        "shallow=$built_commit full=$full_commit"
+fi
+
+# The tarball's mtimes come from the clone's commit date, so a shallow clone
+# reading a different date would restamp every file in it.
+orig_mtime="$(docker run --rm --volume "$work/debs:/t:ro" --entrypoint sh "$IMAGE" -c '
+    TZ=UTC tar --full-time -tvzf /t/deb-build-fixture_0.0.1.orig.tar.gz \
+    | awk "NR==2{print \$4\" \"\$5; exit}"' 2>/dev/null \
+    | { read -r d t; date -u -d "$d $t" +%s 2>/dev/null; } || true)"
+if [ "$orig_mtime" = "$full_epoch" ]; then
+    report pass "the orig tarball carries the commit date a full clone reports"
+else
+    report fail "the orig tarball carries the commit date a full clone reports" \
+        "tarball=${orig_mtime:-<unreadable>} full=$full_epoch"
+fi
+
+rm -rf "$work" "$ref"
+
+summary 20
