@@ -357,11 +357,15 @@ The working tree is then restamped to that same commit date, `debian/` excepted.
 alone, so provenance decided what a packaged file carried: a file from the clone
 is newer and got clamped to the changelog date, while a rebuilder's copy comes
 out of the tarball at upstream's date and survives untouched. Anything installed
-by a route that preserves its source mtime -- `dh_installexamples`,
-`dh_installchangelogs` -- therefore differed between the two, while `install` and
-`dh_installman` write new files and never did. `debian/` is excluded because
-those files reach the `.debian.tar` through `dpkg-source`, which clamps them to
-the changelog date from both paths.
+by a route that preserves its source mtime therefore differed between the two.
+Several debhelper tools do preserve: `dh_installexamples` copies with `cp -a`,
+and `dh_installchangelogs` and `dh_installman` go through debhelper's own
+`install_file`, which ends in a `utime` call restoring the source's timestamps.
+A file the build writes itself -- `install`, or a man page generated from
+`--help` -- is newer than the epoch down both paths and was never affected.
+`debian/` is excluded from the restamp because those files reach the
+`.debian.tar` through `dpkg-source`, which clamps them to the changelog date
+from both paths.
 
 A build fails if any file under `debian/` is older than the changelog entry.
 `dpkg-source` clamps mtimes to `SOURCE_DATE_EPOCH`, which normalises anything
