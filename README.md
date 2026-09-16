@@ -352,6 +352,17 @@ and `vcs.modified` into any binary it builds inside a repository, and a source
 package cannot carry one, so without this every Go package was unreproducible
 from its own `.dsc`.
 
+The working tree is then restamped to that same commit date, `debian/` excepted.
+`dpkg-deb` clamps mtimes newer than `SOURCE_DATE_EPOCH` and leaves older ones
+alone, so provenance decided what a packaged file carried: a file from the clone
+is newer and got clamped to the changelog date, while a rebuilder's copy comes
+out of the tarball at upstream's date and survives untouched. Anything installed
+by a route that preserves its source mtime -- `dh_installexamples`,
+`dh_installchangelogs` -- therefore differed between the two, while `install` and
+`dh_installman` write new files and never did. `debian/` is excluded because
+those files reach the `.debian.tar` through `dpkg-source`, which clamps them to
+the changelog date from both paths.
+
 A build fails if any file under `debian/` is older than the changelog entry.
 `dpkg-source` clamps mtimes to `SOURCE_DATE_EPOCH`, which normalises anything
 newer and preserves anything older, so a stale timestamp would make one leg's

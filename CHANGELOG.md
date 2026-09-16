@@ -8,6 +8,14 @@ Consumers pin the floating major (`@v1`), which always points at the newest
 `package.conf` keys, artifact names — is a breaking change and gets a new
 major. Exact tags never move.
 
+## [1.10.0] - 2026-09-16
+
+### Fixed
+
+- Files installed by an mtime-preserving route (`dh_installexamples`,
+  `dh_installchangelogs`) carry upstream's commit date rather than the
+  changelog's, so a `.deb` built here matches one rebuilt from its `.dsc`.
+
 ## [1.9.0] - 2026-09-11
 
 ### Added
