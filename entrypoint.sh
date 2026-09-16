@@ -473,6 +473,19 @@ make_orig_tarball() {
         --exclude=./debian --exclude=./.git \
         -czf "$tarball" .
 
+    # And put the working tree on the same clock as the tarball just written.
+    #
+    # dpkg-deb clamps mtimes NEWER than SOURCE_DATE_EPOCH and leaves older ones
+    # alone, so provenance decides the packaged timestamps: here the tree comes
+    # from a git clone and every file is newer than the epoch, so it is clamped
+    # down to it, while a rebuilder unpacks the tarball above, whose stamps are
+    # older and therefore survive. The two disagree and the .deb differs.
+    #
+    # debian/ is excluded deliberately. Those files already agree -- dpkg-source
+    # stamps them into the .debian.tar and both paths land on the epoch -- so
+    # moving them here would create a divergence rather than close one.
+    find . -path ./debian -prune -o -exec touch -h -d "@${UPSTREAM_EPOCH:-$SOURCE_DATE_EPOCH}" {} +
+
     printf 'orig tarball: %s\n' "$(basename "$tarball")" >&2
 }
 
