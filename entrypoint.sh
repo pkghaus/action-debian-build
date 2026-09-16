@@ -283,9 +283,18 @@ get_sources() {
     # HTTP/2 streams when several builds clone the same repo at once, which is
     # exactly when this earns its keep. The clear belongs to the attempt, which
     # is why this is a function and not the clone alone.
+    #
+    # --depth 1, because nothing here wants history. Two values are taken from
+    # the clone -- the resolved commit and its date, both of the tip -- and
+    # .git is deleted a few lines below, so a full clone pays for objects that
+    # are read once and thrown away. Measured on zig, whose upstream is the
+    # fleet's largest: 925 MB of history against 40 MB to materialise the tag,
+    # and a get_sources phase of 60-78s. It is also the one upstream not on
+    # GitHub -- Codeberg is volunteer-run, and six legs a build pass were
+    # pulling all 925 MB each.
     _clone_attempt() {
         rm -rf "$SOURCE_DIR"
-        git clone --branch "$VERSION" -- "$UPSTREAM" "$SOURCE_DIR"
+        git clone --depth 1 --branch "$VERSION" -- "$UPSTREAM" "$SOURCE_DIR"
     }
     retry "cloning $UPSTREAM at $VERSION" _clone_attempt || return 1
 

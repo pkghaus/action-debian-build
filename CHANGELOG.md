@@ -8,6 +8,14 @@ Consumers pin the floating major (`@v1`), which always points at the newest
 `package.conf` keys, artifact names — is a breaking change and gets a new
 major. Exact tags never move.
 
+## [1.11.0] - 2026-09-16
+
+### Changed
+
+- The upstream clone is shallow. Nothing read from it wants history, so a full
+  clone transferred objects that were deleted seconds later -- 925 MB against
+  40 MB for zig, 122 MB against 7 MB for zola.
+
 ## [1.10.0] - 2026-09-16
 
 ### Fixed
