@@ -29,20 +29,8 @@ here="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=tests/lib.sh
 . "$here/lib.sh"
 
-repo="$(cd "$here/.." && pwd)"
-step="$(mktemp)"
+step="$(extract_step "Run DEP-8")"
 trap 'rm -f "$step"' EXIT
-
-python3 - "$repo/action.yml" "$step" <<'PY'
-import sys, yaml
-doc = yaml.safe_load(open(sys.argv[1]))
-for st in doc["runs"]["steps"]:
-    if st.get("name", "").startswith("Run DEP-8"):
-        open(sys.argv[2], "w").write(st["run"])
-        break
-else:
-    raise SystemExit("no DEP-8 step found in action.yml")
-PY
 
 # Runs the step against a throwaway workspace holding one package.conf.
 # Returns the step's output; status lands in STEP_STATUS.

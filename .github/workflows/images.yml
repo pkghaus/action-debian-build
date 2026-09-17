@@ -17,7 +17,7 @@ name: Builder images
 # before resolving build dependencies, but the preinstalled tooling drifts
 # further from the suite the longer it sits.
 #
-# NOTE: once this repository is public, GitHub disables scheduled workflows after
+# NOTE: this repository is public, and GitHub disables scheduled workflows after
 # 60 days without repository activity. A quiet month or two will silently stop
 # the weekly rebuild -- re-enable it from the Actions tab, or trigger this
 # workflow manually, before trusting the images to be fresh.

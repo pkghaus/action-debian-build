@@ -66,11 +66,9 @@ jobs:
           echo "changed:"
           printf '%s\n' "$changed" | sed 's/^/  /'
 
-          # Counted, not `grep -q`. With -q grep exits on its first match and
-          # the upstream printf takes SIGPIPE; under pipefail that makes the
-          # pipeline fail and a code change read as documentation. It depends
-          # on whether printf finished writing first, so it is a race, and the
-          # wrong answer is the dangerous one: tests skipped on a real change.
+          # Counted, not `grep -q`, so the step can log "docs of total" and the
+          # verdict is auditable in the run log. A -q form gives the same
+          # answer and shows none of its working.
           total=$(printf '%s\n' "$changed" | grep -c '')
           docs=$(printf '%s\n' "$changed" | grep -cE '\.md$|^LICENSE$' || true)
 
@@ -112,7 +110,8 @@ jobs:
             -x entrypoint.sh tests/lib.sh tests/run.sh tests/test-*.sh tests/fake-git tests/fake-curl
 
       - name: actionlint
-        # Pinned by digest for the same reason the actions are pinned by SHA.
+        # Pinned by digest because it is third party, which is the same reason a
+        # third-party action would get a SHA.
         run: |
           docker run --rm \
             --volume "$PWD:/repo" \
@@ -244,7 +243,7 @@ jobs:
 
           [ -f "tests/fixture/debs/$expected" ] || {
               echo "expected $expected, found:" >&2
-              find tests/fixture/target -type f >&2
+              find tests/fixture/debs -type f >&2
               exit 1
           }
           echo "ok: $expected"

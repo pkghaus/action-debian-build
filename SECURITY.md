@@ -31,10 +31,17 @@ build dependencies. The isolation boundary is the container, not the user.
 
 ## Supply chain
 
-- **Actions are pinned to full commit SHAs**, with the version in a trailing
-  comment. A tag can be moved by anyone who compromises the action's repository;
-  a SHA cannot. Dependabot proposes updates weekly.
-- **The actionlint image is pinned by digest** for the same reason.
+- **Third-party actions are pinned to full commit SHAs**, with the version in a
+  trailing comment. A tag can be moved by anyone who compromises the action's
+  repository; a SHA cannot. There are none in this repository today, so the rule
+  applies to the next one added.
+- **First-party actions stay on major tags.** Every `uses:` here is `actions/*`
+  or `pkghaus/*`. GitHub owns both the tag and the content a SHA would pin, so
+  pinning would move trust from GitHub to GitHub and cost readability. Dependabot
+  keeps those tags current.
+- **The shellcheck and actionlint images are pinned by digest**, because they are
+  third party. They sit inside `run: docker run ...` blocks, which the
+  `github-actions` ecosystem does not read, so they move by hand.
 - **Published images carry SLSA provenance and an SBOM**, attached by buildx and
   attested through `actions/attest-build-provenance`. Verify one with:
 

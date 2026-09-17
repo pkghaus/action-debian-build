@@ -26,20 +26,8 @@ here="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=tests/lib.sh
 . "$here/lib.sh"
 
-repo="$(cd "$here/.." && pwd)"
-step="$(mktemp)"
+step="$(extract_step "Build Debian package")"
 trap 'rm -f "$step"' EXIT
-
-python3 - "$repo/action.yml" "$step" <<'PY'
-import sys, yaml
-doc = yaml.safe_load(open(sys.argv[1]))
-for st in doc["runs"]["steps"]:
-    if st.get("name", "").startswith("Build Debian package"):
-        open(sys.argv[2], "w").write(st["run"])
-        break
-else:
-    raise SystemExit("no build step found in action.yml")
-PY
 
 # Runs the step with docker stubbed, so the resolution logic is what is tested
 # and no image or daemon is needed. Output lands in STEP_OUTPUT, status in

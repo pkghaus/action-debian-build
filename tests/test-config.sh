@@ -17,12 +17,7 @@ work="$(make_workdir "$IMAGE")"
 rm -f "$work/package.conf"
 run_build "$IMAGE" "$work"
 
-if [ "$BUILD_STATUS" -ne 0 ] && grep -q 'package.conf not found' "$BUILD_LOG"; then
-    report pass "a missing package.conf is reported"
-else
-    report fail "a missing package.conf is reported" \
-        "status=$BUILD_STATUS; log: $BUILD_LOG"
-fi
+expect_build_failure "a missing package.conf is reported" 'package.conf not found'
 
 rm -rf "$work"
 
@@ -31,12 +26,7 @@ work="$(make_workdir "$IMAGE")"
 printf 'VERSION=v0.0.1\n' > "$work/package.conf"
 run_build "$IMAGE" "$work"
 
-if [ "$BUILD_STATUS" -ne 0 ] && grep -q 'UPSTREAM' "$BUILD_LOG"; then
-    report pass "a missing UPSTREAM is reported"
-else
-    report fail "a missing UPSTREAM is reported" \
-        "status=$BUILD_STATUS; log: $BUILD_LOG"
-fi
+expect_build_failure "a missing UPSTREAM is reported" 'UPSTREAM'
 
 rm -rf "$work"
 
@@ -45,12 +35,7 @@ work="$(make_workdir "$IMAGE")"
 printf 'UPSTREAM=file:///target/upstream\n' > "$work/package.conf"
 run_build "$IMAGE" "$work"
 
-if [ "$BUILD_STATUS" -ne 0 ] && grep -q 'VERSION' "$BUILD_LOG"; then
-    report pass "a missing VERSION is reported"
-else
-    report fail "a missing VERSION is reported" \
-        "status=$BUILD_STATUS; log: $BUILD_LOG"
-fi
+expect_build_failure "a missing VERSION is reported" 'VERSION'
 
 rm -rf "$work"
 
@@ -59,12 +44,7 @@ work="$(make_workdir "$IMAGE")"
 printf 'LINTIAN=maybe\n' >> "$work/package.conf"
 run_build "$IMAGE" "$work"
 
-if [ "$BUILD_STATUS" -ne 0 ] && grep -q "unknown LINTIAN" "$BUILD_LOG"; then
-    report pass "an unknown LINTIAN mode is rejected"
-else
-    report fail "an unknown LINTIAN mode is rejected" \
-        "status=$BUILD_STATUS; log: $BUILD_LOG"
-fi
+expect_build_failure "an unknown LINTIAN mode is rejected" "unknown LINTIAN"
 
 rm -rf "$work"
 
@@ -75,12 +55,7 @@ work="$(make_workdir "$IMAGE")"
 printf 'DBGSYM=yes\n' >> "$work/package.conf"
 run_build "$IMAGE" "$work"
 
-if [ "$BUILD_STATUS" -ne 0 ] && grep -q "unknown DBGSYM" "$BUILD_LOG"; then
-    report pass "an unknown DBGSYM value is rejected"
-else
-    report fail "an unknown DBGSYM value is rejected" \
-        "status=$BUILD_STATUS; log: $BUILD_LOG"
-fi
+expect_build_failure "an unknown DBGSYM value is rejected" "unknown DBGSYM"
 
 rm -rf "$work"
 
@@ -103,12 +78,7 @@ work="$(make_workdir "$IMAGE")"
 printf 'TOOLCHAIN=haskell\n' >> "$work/package.conf"
 run_build "$IMAGE" "$work"
 
-if [ "$BUILD_STATUS" -ne 0 ] && grep -q "unknown TOOLCHAIN" "$BUILD_LOG"; then
-    report pass "an unknown TOOLCHAIN is rejected"
-else
-    report fail "an unknown TOOLCHAIN is rejected" \
-        "status=$BUILD_STATUS; log: $BUILD_LOG"
-fi
+expect_build_failure "an unknown TOOLCHAIN is rejected" "unknown TOOLCHAIN"
 
 rm -rf "$work"
 

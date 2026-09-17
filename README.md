@@ -97,7 +97,7 @@ LINTIAN=warn
 | --- | --- | --- | --- |
 | `UPSTREAM` | yes, unless native | - | Git URL of the upstream project. Any URL `git clone` accepts. |
 | `VERSION` | yes, unless native | - | Tag or branch to build. Overridable from the environment for local one-off builds. |
-| `TOOLCHAIN` | no | `none` | `rust` bootstraps rustup's stable toolchain; `none` relies on `debian/control`. |
+| `TOOLCHAIN` | no | `none` | `none` relies on `debian/control`, which is what every package in the fleet does. `rust` is the legacy path: it curls a toolchain dpkg cannot record. |
 | `DBGSYM` | no | `0` | `1` or `on` builds and publishes the automatic `-dbgsym` package, `0` or `off` does not. Any other value is an error. |
 | `LINTIAN` | no | `warn` | `off` skips checks, `warn` reports them, `error` fails the build on an error tag. |
 | `SETUP_HOOK` | no | - | Shell run after the toolchain and before the build, in the entrypoint's own shell, so `PATH` changes stick. |
@@ -182,15 +182,17 @@ The key must be passphrase-less. A protected one fails the build with
 
 ### Toolchains
 
-`TOOLCHAIN=rust` exists because Debian's `rustc` trails what current Rust
-upstreams require, so those builds need rustup regardless of suite. Every other
-language should come from `Build-Depends` in `debian/control` - a Go or C project
-needs no entry here.
+Every language comes from `Build-Depends` in `debian/control`, Rust included: a
+Rust package declares `rustup` there and pins a concrete version through
+`RUSTUP_TOOLCHAIN` in `debian/rules` or a `rust-toolchain.toml`. A Go or C
+project needs no entry here either.
 
-It installs rustup's own distribution rather than Debian's `rustup` package,
-which declares `Conflicts: cargo, rustc` and would therefore be removed again
-while `apt-get build-dep` installs a `cargo:native` build dependency, silently
-falling back to Debian's toolchain.
+`TOOLCHAIN=rust` predates that and does something different: it curls rustup's
+own distribution into `~/.cargo`, where dpkg cannot see it and no `.buildinfo`
+records it. Setting it alongside a declared `rustup` is refused, because the
+curled toolchain wins on PATH while the record names the declared one. Nothing
+in the fleet sets it; see "Recording a compiler is not the same as pinning one"
+below for the whole story.
 
 `SETUP_HOOK` covers anything else - another language runtime, an extra
 repository, a pre-build fixup - without needing a change here.
@@ -542,8 +544,8 @@ to let the null backend claim it at all.
 
 ## Security
 
-Actions are pinned to commit SHAs, checkouts carry no credentials into the build
-container, and published images carry provenance and an SBOM. See
+First-party actions stay on major tags and a third-party one would be pinned by
+SHA, checkouts carry no credentials into the build container, and published images carry provenance and an SBOM. See
 [SECURITY.md](SECURITY.md) for the trust boundaries and how to verify an image.
 
 ## License

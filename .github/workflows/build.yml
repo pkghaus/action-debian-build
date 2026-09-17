@@ -15,9 +15,10 @@ name: Build Debian packages
 # instead would duplicate logic that also runs DEP-8, and leave our own
 # published action with no consumer inside the org.
 #
-# Actions are pinned to commit SHAs: a full-length SHA is the only immutable
-# reference GitHub offers, and a tag can be moved by anyone who compromises the
-# action's repository. Dependabot keeps the pins current.
+# Every `uses:` here is first-party and stays on a major tag: GitHub owns both
+# the tag and the content a SHA would pin. A third-party action added here gets
+# a full-length SHA with the version in a trailing comment, because a tag can be
+# moved by whoever compromises that action's repository.
 
 on:
   workflow_call:

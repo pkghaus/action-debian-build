@@ -146,3 +146,53 @@ debs_in() {
 count_debs() {
     debs_in "$1" | wc -l | tr -d ' '
 }
+
+# Asserts the build failed AND said why. The message half is the point: a build
+# that fell over for an unrelated reason satisfies a bare status check, so the
+# two halves have to travel together. Thirteen copies of this existed, each
+# repeating the same else branch and the same detail string.
+expect_build_failure() { # name pattern
+    if [ "$BUILD_STATUS" -ne 0 ] && grep -q "$2" "$BUILD_LOG"; then
+        report pass "$1"
+    else
+        report fail "$1" "status=$BUILD_STATUS; log: $BUILD_LOG"
+    fi
+}
+
+# Mirror of the entrypoint's version_qualifier(), so the assertions that use it
+# state a full expected filename rather than pattern-matching around one. A
+# MIRROR, deliberately: it is written out here rather than read from the
+# entrypoint, because a test that derived the answer from the code under test
+# would assert nothing. ci.yml carries a fourth copy on purpose, exercising the
+# action end to end without this harness.
+expected_qualifier() { # image
+    local suite
+    suite="$(docker run --rm --entrypoint sh "$1" -c 'printf %s "$DEB_SUITE"')"
+    case "$suite" in
+        unstable | sid) printf '%s' "" ;;
+        testing)        printf '%s' "~testing1" ;;
+        *)              printf '~haus%s+1' "$(docker run --rm --entrypoint sh "$1" \
+                            -c '. /etc/os-release && printf %s "$VERSION_ID"')" ;;
+    esac
+}
+
+# The run body of action.yml's step whose name starts with the given prefix,
+# written to a temp file whose path is echoed. The caller owns the cleanup: a
+# trap set inside a command substitution is discarded the moment it returns, so
+# it has to live in the caller's own shell.
+extract_step() { # name-prefix
+    local repo out
+    repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    out="$(mktemp)"
+    python3 - "$repo/action.yml" "$out" "$1" <<'EXTRACT'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1]))
+for st in doc["runs"]["steps"]:
+    if st.get("name", "").startswith(sys.argv[3]):
+        open(sys.argv[2], "w").write(st["run"])
+        break
+else:
+    raise SystemExit(f"no step named {sys.argv[3]!r} in action.yml")
+EXTRACT
+    printf '%s' "$out"
+}

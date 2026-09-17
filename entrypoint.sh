@@ -23,7 +23,7 @@ CLONE_ATTEMPTS="${CLONE_ATTEMPTS:-5}"
 # above. Every network fetch in this file gets the same treatment: the clone
 # retries because GitHub cancels HTTP/2 streams when
 # several builds clone at once, and the rustup bootstrap has the same exposure
-# to a third-party host on up to 54 build legs in a fleet-wide wave.
+# to a third-party host on every Rust leg of a fleet-wide wave.
 #
 # $1 labels the messages, the rest is the command. A caller needing to clean up
 # between attempts passes a function, because the clear is part of the attempt.
@@ -611,7 +611,12 @@ EOF
     # a changelog older than the subkey is the ordinary case rather than an
     # exotic one. Clamping keeps every leg on the same value either way.
     sign_epoch="$SOURCE_DATE_EPOCH"
-    [ "$created" -gt "$sign_epoch" ] && sign_epoch="$created"
+    # An if, not `[ ... ] && x=y`: load_config documents why 540 lines up. The
+    # && form evaluates to false when the test fails, so it would become this
+    # function's exit status the moment it was the last statement.
+    if [ "$created" -gt "$sign_epoch" ]; then
+        sign_epoch="$created"
+    fi
 
     # The CI export is passphrase-less, so batch and no-tty are enough; a
     # protected key fails here with "No secret key" rather than hanging on a

@@ -12,14 +12,8 @@ IMAGE="${1:?usage: $0 <builder-image>}"
 # shellcheck source=tests/lib.sh
 . "$(cd "$(dirname "$0")" && pwd)/lib.sh"
 
-suite="$(docker run --rm --entrypoint sh "$IMAGE" -c 'printf %s "$DEB_SUITE"')"
 
-case "$suite" in
-    unstable | sid) qualifier="" ;;
-    testing)        qualifier="~testing1" ;;
-    *)              qualifier="~haus$(docker run --rm --entrypoint sh "$IMAGE" \
-                        -c '. /etc/os-release && printf %s "$VERSION_ID"')+1" ;;
-esac
+qualifier="$(expected_qualifier "$IMAGE")"
 version="0.0.1-1${qualifier}"
 native_version="0.0.1${qualifier}"
 
@@ -226,12 +220,7 @@ printf 'TOOLCHAIN=rust\n' >> "$work/package.conf"
 sed -i 's/^ debhelper-compat (= 13),$/ debhelper-compat (= 13),\n rustup,/' "$work/debian/control"
 run_build "$IMAGE" "$work"
 
-if [ "$BUILD_STATUS" -ne 0 ] && grep -q 'also sets TOOLCHAIN=rust' "$BUILD_LOG"; then
-    report pass "declaring rustup and setting TOOLCHAIN=rust is refused"
-else
-    report fail "declaring rustup and setting TOOLCHAIN=rust is refused" \
-        "status=$BUILD_STATUS; log: $BUILD_LOG"
-fi
+expect_build_failure "declaring rustup and setting TOOLCHAIN=rust is refused" 'also sets TOOLCHAIN=rust'
 rm -rf "$work"
 
 # --- the mtime guard --------------------------------------------------------
@@ -243,12 +232,7 @@ work="$(make_workdir "$IMAGE")"
 touch -d '1999-12-31 23:59:58' "$work/debian/control"
 run_build "$IMAGE" "$work"
 
-if [ "$BUILD_STATUS" -ne 0 ] && grep -q 'predate the changelog entry' "$BUILD_LOG"; then
-    report pass "a debian/ file older than the changelog fails the build"
-else
-    report fail "a debian/ file older than the changelog fails the build" \
-        "status=$BUILD_STATUS; log: $BUILD_LOG"
-fi
+expect_build_failure "a debian/ file older than the changelog fails the build" 'predate the changelog entry'
 rm -rf "$work"
 
 # --- a shallow clone resolves what a full one does ------------------------

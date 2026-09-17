@@ -11,17 +11,9 @@ IMAGE="${1:?usage: $0 <builder-image>}"
 # shellcheck source=tests/lib.sh
 . "$(cd "$(dirname "$0")" && pwd)/lib.sh"
 
-suite="$(docker run --rm --entrypoint sh "$IMAGE" -c 'printf %s "$DEB_SUITE"')"
 arch="$(docker run --rm --entrypoint sh "$IMAGE" -c 'dpkg --print-architecture')"
 
-# Mirror of the entrypoint's version_qualifier(), so the assertions below state
-# the full expected filename rather than pattern-matching around it.
-case "$suite" in
-    unstable | sid) qualifier="" ;;
-    testing)        qualifier="~testing1" ;;
-    *)              qualifier="~haus$(docker run --rm --entrypoint sh "$IMAGE" \
-                        -c '. /etc/os-release && printf %s "$VERSION_ID"')+1" ;;
-esac
+qualifier="$(expected_qualifier "$IMAGE")"
 
 # --- default: one package, correctly named, containing the built binary ------
 work="$(make_workdir "$IMAGE")"
@@ -184,12 +176,7 @@ work="$(make_workdir "$IMAGE")"
 sed -i 's/^Architecture: any$/Architecture: hurd-i386/' "$work/debian/control"
 run_build "$IMAGE" "$work"
 
-if [ "$BUILD_STATUS" -ne 0 ] && grep -q 'dpkg-buildpackage failed' "$BUILD_LOG"; then
-    report pass "a build for the wrong architecture fails with a diagnosis"
-else
-    report fail "a build for the wrong architecture fails with a diagnosis" \
-        "status=$BUILD_STATUS; log: $BUILD_LOG"
-fi
+expect_build_failure "a build for the wrong architecture fails with a diagnosis" 'dpkg-buildpackage failed'
 
 if grep -q 'Does Architecture in debian/control permit' "$BUILD_LOG"; then
     report pass "the diagnosis names the architecture to check"
@@ -203,12 +190,7 @@ rm -rf "$work"
 work="$(make_workdir "$IMAGE")"
 run_build "$IMAGE" "$work" --env VERSION=no-such-tag
 
-if [ "$BUILD_STATUS" -ne 0 ] && grep -q 'no-such-tag' "$BUILD_LOG"; then
-    report pass "VERSION from the environment wins over package.conf"
-else
-    report fail "VERSION from the environment wins over package.conf" \
-        "status=$BUILD_STATUS; log: $BUILD_LOG"
-fi
+expect_build_failure "VERSION from the environment wins over package.conf" 'no-such-tag'
 
 rm -rf "$work"
 

@@ -84,12 +84,7 @@ work="$(make_native_workdir)"
 printf 'UPSTREAM=file:///target/nowhere\n' >> "$work/package.conf"
 run_build "$IMAGE" "$work"
 
-if [ "$BUILD_STATUS" -ne 0 ] && grep -q 'native package and must not set UPSTREAM' "$BUILD_LOG"; then
-    report pass "a native package setting UPSTREAM is refused"
-else
-    report fail "a native package setting UPSTREAM is refused" \
-        "status=$BUILD_STATUS; log: $BUILD_LOG"
-fi
+expect_build_failure "a native package setting UPSTREAM is refused" 'native package and must not set UPSTREAM'
 
 rm -rf "$work"
 

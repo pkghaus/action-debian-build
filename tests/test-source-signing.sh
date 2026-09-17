@@ -22,13 +22,7 @@ IMAGE="${1:?usage: $0 <builder-image>}"
 # shellcheck source=tests/lib.sh
 . "$(cd "$(dirname "$0")" && pwd)/lib.sh"
 
-suite="$(docker run --rm --entrypoint sh "$IMAGE" -c 'printf %s "$DEB_SUITE"')"
-case "$suite" in
-    unstable | sid) qualifier="" ;;
-    testing)        qualifier="~testing1" ;;
-    *)              qualifier="~haus$(docker run --rm --entrypoint sh "$IMAGE" \
-                        -c '. /etc/os-release && printf %s "$VERSION_ID"')+1" ;;
-esac
+qualifier="$(expected_qualifier "$IMAGE")"
 dsc="deb-build-fixture_0.0.1-1${qualifier}.dsc"
 buildinfo_glob="deb-build-fixture_0.0.1-1${qualifier}_*.buildinfo"
 
@@ -154,12 +148,7 @@ rm -rf "$work"
 # publish unsigned source packages for as long as nobody opened one.
 work="$(make_workdir "$IMAGE")"
 run_build "$IMAGE" "$work" --env SOURCE_SIGNING_KEY="not an OpenPGP key at all"
-if [ "$BUILD_STATUS" -ne 0 ] && grep -q 'could not import it' "$BUILD_LOG"; then
-    report pass "an unreadable signing key fails the build"
-else
-    report fail "an unreadable signing key fails the build" \
-        "status=$BUILD_STATUS; log: $BUILD_LOG"
-fi
+expect_build_failure "an unreadable signing key fails the build" 'could not import it'
 rm -rf "$work"
 
 # A certify-only key imports cleanly and can sign nothing. Distinct from the
@@ -168,12 +157,7 @@ rm -rf "$work"
 gpg --batch --armor --export-secret-keys "${primary}!" > "$keyhome/certonly.asc" 2>/dev/null
 work="$(make_workdir "$IMAGE")"
 run_build "$IMAGE" "$work" --env "SOURCE_SIGNING_KEY=$(cat "$keyhome/certonly.asc")"
-if [ "$BUILD_STATUS" -ne 0 ] && grep -q 'no signing subkey' "$BUILD_LOG"; then
-    report pass "a key with no signing subkey fails the build"
-else
-    report fail "a key with no signing subkey fails the build" \
-        "status=$BUILD_STATUS; log: $BUILD_LOG"
-fi
+expect_build_failure "a key with no signing subkey fails the build" 'no signing subkey'
 rm -rf "$work"
 
 summary 9

@@ -1,8 +1,9 @@
 version: 2
 
 updates:
-  # Actions are pinned to commit SHAs, which only stay current if something
-  # bumps them.
+  # Every `uses:` here is first-party on a major tag, deliberately, so this
+  # entry is what keeps those tags current. The two linters ARE pinned, by
+  # digest, but they sit inside `run:` blocks this ecosystem does not read.
   - package-ecosystem: github-actions
     directory: /
     schedule:

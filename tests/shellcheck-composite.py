@@ -93,6 +93,14 @@ def check(path):
                   file=sys.stderr)
             ok = False
 
+    # Checking nothing is not passing. _steps() returns empty for an action
+    # that is not composite, and a composite whose steps lost their run: keys
+    # would report ok with zero blocks -- the same shape yamlcheck.py guards
+    # against and test-yamlcheck.sh asserts.
+    if checked == 0:
+        print(f"FAIL {path}: no composite run blocks found", file=sys.stderr)
+        return False
+
     if ok:
         print(f"ok   {path} ({checked} run block(s))")
 
