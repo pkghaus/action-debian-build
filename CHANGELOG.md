@@ -8,6 +8,14 @@ Consumers pin the floating major (`@v1`), which always points at the newest
 `package.conf` keys, artifact names — is a breaking change and gets a new
 major. Exact tags never move.
 
+## [Unreleased]
+
+### Removed
+
+- The reusable workflow's `notify archive` job. It only ever told pkghaus/apt
+  to ingest, and pkghaus/packages now does that itself. `APT_DISPATCH_TOKEN`
+  is still accepted, and ignored.
+
 ## [1.12.0] - 2026-09-21
 
 ### Fixed

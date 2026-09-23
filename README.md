@@ -75,10 +75,8 @@ Its inputs:
 | `dep8` | `on` | `off` skips the package's DEP-8 tests. |
 
 That builds every suite and architecture in parallel, failing loudly if any leg
-does not produce a package. With the org secret `APT_DISPATCH_TOKEN` available
-to the caller, a green tag build also notifies the pkg.haus archive to ingest
-immediately; without the secret that final job is a no-op. Publishing is not
-this workflow's job: the pkg.haus APT archive builds its packages from source
+does not produce a package. It needs no secrets. Publishing is not this
+workflow's job: the pkg.haus APT archive builds its packages from source
 itself. The trigger has to live in
 the calling repository - a reusable workflow cannot declare the event that
 starts it.
