@@ -89,11 +89,6 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install linters
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends python3-yaml
-
       - name: shellcheck
         # Pinned by digest rather than taken from the runner image, matching
         # pkghaus/apt and pkghaus/signed-commit. Its shellcheck moves on its own

@@ -99,6 +99,8 @@ LINTIAN=warn
 | `DBGSYM` | no | `0` | `1` or `on` builds and publishes the automatic `-dbgsym` package, `0` or `off` does not. Any other value is an error. |
 | `LINTIAN` | no | `warn` | `off` skips checks, `warn` reports them, `error` fails the build on an error tag. |
 | `SETUP_HOOK` | no | - | Shell run after the toolchain and before the build, in the entrypoint's own shell, so `PATH` changes stick. |
+| `DEP8_EXTRA_DEBS` | no | - | Packages from your own archive that the DEP-8 testbed needs, space-separated. See [DEP-8 tests](#dep-8-tests). |
+| `CLONE_ATTEMPTS` | no | `5` | How many times to retry cloning upstream before giving up. Each retry backs off, and a partial checkout is cleared first. |
 
 ### The upstream revision travels in the source package
 
@@ -142,8 +144,6 @@ repository basename, and everything in the packaging directory except
 `debian/`, `package.conf` and `debs/` is copied into it. The `.source` sidecar
 records `Repository: none (native package; the source package is the source)`
 rather than leaving the field blank, which would read as a lookup that failed.
-| `DEP8_EXTRA_DEBS` | no | - | Packages from your own archive that the DEP-8 testbed needs, space-separated. See [DEP-8 tests](#dep-8-tests). |
-| `CLONE_ATTEMPTS` | no | `5` | How many times to retry cloning upstream before giving up. Each retry backs off, and a partial checkout is cleared first. |
 
 The package name appears nowhere in this configuration: artifacts are named from
 what `dpkg` itself emits, so there is nothing to keep in sync with
