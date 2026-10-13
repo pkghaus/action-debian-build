@@ -51,7 +51,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Kept in step with the release workflow's default suites.
+        # Kept in step with build.yml's default suites.
         suite: [trixie, testing, unstable]
         target:
           - {arch: amd64, runner: ubuntu-24.04}

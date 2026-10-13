@@ -16,7 +16,7 @@ set -euxo pipefail
 # called as x="$(f)" keeps running after a failure instead of aborting.
 shopt -s inherit_errexit
 
-TARGET="${TARGET:-$(pwd)}"
+TARGET="$(pwd)"
 CLONE_ATTEMPTS="${CLONE_ATTEMPTS:-5}"
 
 # Run a command until it succeeds, on the attempt budget and doubling backoff
@@ -79,8 +79,8 @@ load_config() {
     # and no tag to clone, so UPSTREAM and VERSION describe nothing. Everything
     # the package is made of already sits in the packaging directory. The same
     # test on the same file gates the bump automation in pkghaus/packages
-    # (is_native in plan-bumps.sh and bump-upstream.sh), so a package is native
-    # in one place and native everywhere.
+    # (is_native in scripts/lib.sh), so a package is native in one place and
+    # native everywhere.
     #
     # Read from the packaging directory rather than a clone that may not happen.
     NATIVE=0
@@ -116,9 +116,9 @@ load_config() {
     # repository gives the keyring a source tree called archive-keyring/, named
     # after the repo rather than the package.
     if [ -n "${UPSTREAM:-}" ]; then
-        SOURCE_DIR="${SOURCE_DIR:-$(basename "${UPSTREAM%.git}")}"
+        SOURCE_DIR="$(basename "${UPSTREAM%.git}")"
     else
-        SOURCE_DIR="${SOURCE_DIR:-$(sed -n '1s/ .*//p' "$TARGET/debian/changelog" 2>/dev/null)}"
+        SOURCE_DIR="$(sed -n '1s/ .*//p' "$TARGET/debian/changelog" 2>/dev/null)"
     fi
 
     case "$LINTIAN" in
@@ -451,15 +451,10 @@ assert_debian_mtimes() {
 # amd64 and arm64, 2 to 32 cores, different build paths, two independent clones,
 # and all three images (whose gzip versions differ).
 make_orig_tarball() {
-    local format source upstream tarball
+    local source upstream tarball
 
-    format="$(cat debian/source/format 2>/dev/null || true)"
-    case "$format" in
-        *native*)
-            # No upstream tarball exists for a native package by definition.
-            return 0
-            ;;
-    esac
+    # No upstream tarball exists for a native package by definition.
+    if [ "$NATIVE" -eq 1 ]; then return 0; fi
 
     source="$(dpkg-parsechangelog -l debian/changelog -S Source)"
     upstream="$(dpkg-parsechangelog -l debian/changelog -S Version)"
@@ -672,9 +667,6 @@ build() {
         printf '%s\n' "$UPSTREAM_COMMIT" > debian/upstream-commit
     fi
 
-    # Reads Build-Depends straight from the debian/ just copied in. Preferred
-    # over devscripts' mk-build-deps because it needs no extra packages in the
-    # image and no `yes |` pipe, while producing an identical package.
     apply_version_qualifier
 
     # After the qualifier, so the timestamp is the one dpkg-source will use.
@@ -684,6 +676,9 @@ build() {
     assert_debian_mtimes
     make_orig_tarball
 
+    # Reads Build-Depends straight from the debian/ just copied in. Preferred
+    # over devscripts' mk-build-deps because it needs no extra packages in the
+    # image and no `yes |` pipe, while producing an identical package.
     apt-get build-dep -y ./
 
     # TOOLCHAIN=rust curls a toolchain into ~/.cargo, which wins on PATH over

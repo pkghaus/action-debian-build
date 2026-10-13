@@ -55,13 +55,6 @@ jobs:
               v[0-9]*.[0-9]*.[0-9]*) ;;
               *) echo "FATAL: '$tag' is not a vX.Y.Z tag" >&2; exit 1 ;;
           esac
-          # A dispatch can name anything, so confirm the tag exists before
-          # publishing a release that would otherwise create it.
-          git rev-parse -q --verify "refs/tags/$tag" >/dev/null 2>&1 || {
-              git fetch -q --depth 1 origin "refs/tags/$tag:refs/tags/$tag" || {
-                  echo "FATAL: tag $tag does not exist" >&2; exit 1
-              }
-          }
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       - name: Extract this version's changelog section
@@ -108,7 +101,8 @@ jobs:
                   --repo "$GITHUB_REPOSITORY" --notes-file -
               echo "updated release $TAG"
           else
-              printf '%s' "$BODY" | gh release create "$TAG" \
+              # --verify-tag: a dispatch can name anything, so never let create make the tag.
+              printf '%s' "$BODY" | gh release create "$TAG" --verify-tag \
                   --repo "$GITHUB_REPOSITORY" --title "$TAG" --notes-file -
               echo "created release $TAG"
           fi
